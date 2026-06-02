@@ -1,0 +1,89 @@
+{% extends "layout.html" %}
+{% block title %}録画済み — Radio Recorder{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4 class="mb-0">
+    <i class="bi bi-film me-2"></i>録画済み
+    {% if completed %}
+    <span class="badge bg-secondary ms-2">{{ completed|length }}</span>
+    {% endif %}
+  </h4>
+</div>
+
+{% if not completed and not files %}
+<div class="text-center py-5 text-secondary">
+  <i class="bi bi-film fs-1 d-block mb-3 opacity-25"></i>
+  <p>録画済みのファイルはありません</p>
+  <a href="/programs" class="btn btn-outline-primary mt-2">
+    <i class="bi bi-calendar3 me-1"></i>番組表で予約する
+  </a>
+</div>
+{% else %}
+
+{% if completed %}
+<!-- 完了録音（メタデータあり） -->
+<div class="row g-3 mt-1">
+  {% for item in completed %}
+  {% set start = item.start_time %}
+  {% set fname = item.output | basename if item.output else '' %}
+  <div class="col-12 col-md-6 col-xl-4">
+    <div class="card recorded-card h-100">
+      <div class="card-body pb-2">
+        <div class="d-flex justify-content-between align-items-start mb-1">
+          <span class="badge bg-secondary station-badge">{{ item.station_name }}</span>
+          <small class="text-secondary">{{ start.strftime('%Y-%m-%d %H:%M') if start is not string else start[:16] }}</small>
+        </div>
+        <h6 class="card-title mt-2 mb-1">{{ item.title }}</h6>
+        <p class="text-secondary small mb-2">
+          <i class="bi bi-clock me-1"></i>{{ (item.duration // 60) }}分
+        </p>
+        {% if fname %}
+        <audio controls class="w-100 audio-player" preload="none"
+               src="{{ url_for('serve_recordings', filename=fname) }}">
+        </audio>
+        {% else %}
+        <p class="text-secondary small"><i class="bi bi-exclamation-circle me-1"></i>ファイルなし</p>
+        {% endif %}
+      </div>
+      {% if fname %}
+      <div class="card-footer border-0 pt-0 pb-2 px-3 text-end">
+        <a href="{{ url_for('serve_recordings', filename=fname) }}" download
+           class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-download me-1"></i>ダウンロード
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% elif files %}
+<!-- メタデータなし（ファイルのみ） -->
+<div class="row g-3 mt-1">
+  {% for filename in files %}
+  <div class="col-12 col-md-6 col-xl-4">
+    <div class="card recorded-card h-100">
+      <div class="card-body">
+        <h6 class="card-title small text-truncate mb-3" title="{{ filename }}">
+          <i class="bi bi-file-earmark-music me-1"></i>{{ filename }}
+        </h6>
+        <audio controls class="w-100 audio-player" preload="none"
+               src="{{ url_for('serve_recordings', filename=filename) }}">
+        </audio>
+      </div>
+      <div class="card-footer border-0 pt-0 pb-2 px-3 text-end">
+        <a href="{{ url_for('serve_recordings', filename=filename) }}" download
+           class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-download me-1"></i>ダウンロード
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

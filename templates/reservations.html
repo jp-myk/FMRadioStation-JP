@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+{% block title %}予約 — Radio Recorder{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4 class="mb-0">
+    <i class="bi bi-bookmark-check me-2"></i>予約
+    {% if scheduled %}
+    <span class="badge bg-secondary ms-2">{{ scheduled|length }}</span>
+    {% endif %}
+  </h4>
+</div>
+
+{% if not scheduled %}
+<div class="text-center py-5 text-secondary">
+  <i class="bi bi-bookmark fs-1 d-block mb-3 opacity-25"></i>
+  <p>予約された録音はありません</p>
+  <a href="/programs" class="btn btn-outline-primary mt-2">
+    <i class="bi bi-calendar3 me-1"></i>番組表で予約する
+  </a>
+</div>
+{% else %}
+<div class="table-responsive mt-3">
+  <table class="table table-dark table-hover align-middle">
+    <thead>
+      <tr>
+        <th>番組タイトル</th>
+        <th>放送局</th>
+        <th>開始時刻</th>
+        <th>録音時間</th>
+        <th class="text-end">操作</th>
+      </tr>
+    </thead>
+    <tbody id="reservationsBody">
+      {% for item in scheduled %}
+      {% set start = item.start_time %}
+      <tr id="res-row-{{ loop.index0 }}">
+        <td>
+          <div class="fw-semibold">{{ item.title }}</div>
+        </td>
+        <td>
+          <span class="badge bg-secondary">{{ item.station_id }}</span>
+          <span class="ms-1 small text-secondary">{{ item.station }}</span>
+        </td>
+        <td class="small">
+          {{ start.strftime('%Y-%m-%d %H:%M') if start is not string else start[:16] }}
+        </td>
+        <td class="small text-secondary">{{ (item.duration // 60) }}分</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-danger"
+                  onclick="cancelReservation({{ loop.index0 }}, this)">
+            <i class="bi bi-trash3 me-1"></i>キャンセル
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function cancelReservation(idx, btn) {
+  if (!confirm('この予約をキャンセルしますか？')) return;
+  btn.disabled = true;
+  fetch('/api/reservations/' + idx, { method: 'DELETE' })
+    .then(r => {
+      if (!r.ok) throw new Error('削除に失敗しました');
+      const row = document.getElementById('res-row-' + idx);
+      row.classList.add('fade-out');
+      setTimeout(() => row.remove(), 300);
+    })
+    .catch(err => {
+      alert(err.message);
+      btn.disabled = false;
+    });
+}
+</script>
+{% endblock %}

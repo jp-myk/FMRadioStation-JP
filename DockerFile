@@ -1,0 +1,53 @@
+# --- Stage 1: Base Image ---
+# Debian "Bookworm" ベースの軽量な公式Pythonイメージを使用
+FROM debian:bookworm-slim
+
+# --- Stage 2: System Dependencies ---
+# apt実行時の対話型プロンプトを無効化
+ENV DEBIAN_FRONTEND=noninteractive
+
+# GNU Radio、OsmocomSDRドライバ、Python3、およびuvのインストーラに必要なcurlをインストール
+# debian:bookworm-slim を使うことで gnuradio の Python バインディングと Python が
+# 同一バージョン（3.11）になり、ABI の不一致を回避できる
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gnuradio \
+    gr-osmosdr \
+    python3 \
+    python3-pip \
+    curl \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# --- Stage 3: Install uv ---
+# uv (Astral社製の超高速Pythonパッケージインストーラ) をインストール
+# 公式のインストーラスクリプトを使用し、PATHを通す
+ENV UV_VERSION=0.2.22
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+
+# --- Stage 4: Application Setup ---
+# コンテナ内の作業ディレクトリを作成・設定
+WORKDIR /app
+
+# プロジェクト定義ファイル(pyproject.toml)を先にコピー
+COPY pyproject.toml .
+COPY README.md .
+
+# uvを使ってpyproject.tomlから依存関係をインストール
+# --system: 仮想環境を作らず、システムのPython環境に直接インストール (Dockerのベストプラクティス)
+# --no-cache: Dockerレイヤーのキャッシュを利用するため、uv自体のキャッシュは無効化しイメージサイズを削減
+RUN uv pip install --system --no-cache --break-system-packages .
+
+# アプリケーションのソースコードをコンテナにコピー
+COPY radio_scheduler.py .
+COPY radio_scheduler_webui.py .
+COPY templates/ templates/
+COPY static/ static/
+
+# --- Stage 5: Execution Command ---
+# コンテナ起動時にスクリプトを実行 (docker-compose 側でコマンドを上書き可能)
+ENTRYPOINT ["python3"]
+
+# デフォルトのコマンド (引数がなければヘルプを表示)
+CMD ["radio_scheduler.py", "--help"]

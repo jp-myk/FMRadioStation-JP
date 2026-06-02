@@ -1,0 +1,356 @@
+/* ============================================================
+   EPGStation-inspired dark theme for Radio Recorder
+   ============================================================ */
+
+:root {
+  --sidebar-width: 240px;
+  --topbar-height: 56px;
+  --accent: #e53935;
+  --accent-hover: #c62828;
+  --bg-main: #121212;
+  --bg-sidebar: #1a1a1a;
+  --bg-card: #1e1e1e;
+  --border: #2e2e2e;
+  --text-primary: #eeeeee;
+  --text-secondary: #9e9e9e;
+}
+
+/* ---- Reset / Base ----------------------------------------- */
+body {
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* ---- Loading overlay -------------------------------------- */
+#loader {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9999;
+  display: none;
+  justify-content: center;
+  align-items: center;
+}
+#loader.active {
+  display: flex;
+}
+
+/* ---- Top bar ---------------------------------------------- */
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-height);
+  background: #1a1a1a;
+  border-bottom: 1px solid var(--border);
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.topbar-toggle {
+  text-decoration: none;
+  color: #ccc !important;
+}
+.topbar-toggle:hover {
+  color: #fff !important;
+}
+
+.topbar-title {
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+/* ---- Sidebar ---------------------------------------------- */
+.sidebar {
+  position: fixed;
+  top: var(--topbar-height);
+  left: 0;
+  width: var(--sidebar-width);
+  height: calc(100vh - var(--topbar-height));
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  z-index: 900;
+  overflow-y: auto;
+  transition: transform 0.25s ease;
+}
+
+.sidebar-link {
+  color: var(--text-secondary);
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 0;
+  font-size: 0.9rem;
+  transition: color 0.15s, background 0.15s;
+  text-decoration: none;
+}
+.sidebar-link i {
+  font-size: 1.1rem;
+  width: 1.25rem;
+  text-align: center;
+}
+.sidebar-link:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.05);
+}
+.sidebar-link.active {
+  color: #fff;
+  background: rgba(229, 57, 53, 0.15);
+  border-left: 3px solid var(--accent);
+  padding-left: calc(1.25rem - 3px);
+}
+
+/* ---- Main content ----------------------------------------- */
+.main-content {
+  margin-left: var(--sidebar-width);
+  margin-top: var(--topbar-height);
+  padding: 1.5rem;
+  min-height: calc(100vh - var(--topbar-height));
+}
+
+/* ---- Page header ------------------------------------------ */
+.page-header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+/* ---- Cards ------------------------------------------------ */
+.card {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+
+/* Stat cards on dashboard */
+.stat-card {
+  transition: transform 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.stat-icon {
+  font-size: 2rem;
+  width: 3rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 0.2rem;
+}
+
+.stat-card-recording .stat-icon { color: var(--accent); }
+.stat-card-recording .stat-value { color: var(--accent); }
+.stat-card-scheduled .stat-icon { color: #fb8c00; }
+.stat-card-scheduled .stat-value { color: #fb8c00; }
+.stat-card-completed .stat-icon { color: #43a047; }
+.stat-card-completed .stat-value { color: #43a047; }
+
+/* On-air cards */
+.on-air-card {
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  border-color: var(--border);
+}
+.on-air-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  border-color: var(--accent);
+}
+
+.on-air-title {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.station-badge {
+  font-size: 0.7rem;
+  background-color: #333 !important;
+}
+
+.on-air-badge {
+  font-size: 0.65rem;
+}
+
+.on-air-progress {
+  background-color: #333;
+}
+
+/* Recording card */
+.recording-card .card-header {
+  background: rgba(229, 57, 53, 0.1);
+}
+
+/* Recorded card */
+.recorded-card {
+  transition: box-shadow 0.15s;
+}
+.recorded-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.audio-player {
+  height: 36px;
+  border-radius: 4px;
+  accent-color: var(--accent);
+}
+
+/* ---- Now Playing Bar --------------------------------------- */
+@keyframes barConnecting {
+  0%, 100% { border-top-color: var(--accent); }
+  50%       { border-top-color: rgba(229, 57, 53, 0.3); }
+}
+
+.now-playing-bar {
+  position: fixed;
+  bottom: 0;
+  left: var(--sidebar-width);
+  right: 0;
+  background: #1a1a1a;
+  border-top: 2px solid var(--accent);
+  padding: 0.6rem 1.25rem;
+  z-index: 800;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.4);
+}
+
+.now-playing-bar.bar-connecting {
+  animation: barConnecting 1s ease-in-out infinite;
+}
+
+/* ---- Program Guide ---------------------------------------- */
+.program-grid-wrapper {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - var(--topbar-height) - 100px);
+}
+
+.program-grid-table {
+  font-size: 0.8rem;
+  min-width: 1200px;
+  table-layout: fixed;
+}
+
+.program-grid-table thead th {
+  background: #1a1a1a;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-color: var(--border);
+  padding: 6px 8px;
+}
+
+.time-col {
+  width: 55px;
+  min-width: 55px;
+  text-align: center;
+  background: #1a1a1a;
+}
+
+.station-col {
+  width: 130px;
+  min-width: 120px;
+  text-align: center;
+}
+
+.program-cell {
+  vertical-align: top;
+  padding: 4px;
+  border-color: var(--border) !important;
+}
+
+.program-box {
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: filter 0.15s;
+  min-height: 48px;
+}
+.program-box:hover {
+  filter: brightness(1.2);
+}
+
+.program-available {
+  background: #2a3a4a;
+  border-left: 3px solid #1976d2;
+}
+.program-reserved {
+  background: #1a3a1a;
+  border-left: 3px solid #43a047;
+  cursor: default;
+}
+.program-reserved:hover {
+  filter: none;
+}
+
+.prog-title {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.prog-time {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.reserve-badge {
+  font-size: 0.65rem;
+}
+
+.date-separator-row td {
+  background: #1a2a3a;
+  color: #90caf9;
+  font-weight: bold;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  position: sticky;
+  top: 37px;
+  z-index: 9;
+  border-color: #2a5a8a !important;
+}
+
+/* ---- Reservations table ----------------------------------- */
+.fade-out {
+  transition: opacity 0.3s, transform 0.3s;
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+/* ---- Responsive: collapse sidebar on small screens -------- */
+@media (max-width: 768px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+  .main-content {
+    margin-left: 0;
+  }
+  .now-playing-bar {
+    left: 0;
+  }
+}

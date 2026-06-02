@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>録音済み番組</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <!-- ローディングオーバーレイ -->
+  <div id="loader">
+    <div class="spinner"></div>
+  </div>
+
+  <header>
+    <h1>録音済み番組</h1>
+    <a href="{{ url_for('index') }}">ホームへ戻る</a>
+  </header>
+  <section class="recordings">
+    {% if files %}
+      <table>
+        <thead>
+          <tr>
+            <th>ファイル名</th>
+            <th>再生</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in files %}
+          <tr>
+            <td>{{ file }}</td>
+            <td>
+              <audio controls>
+                <source src="{{ url_for('serve_recordings', filename=file) }}" type="audio/wav">
+                お使いのブラウザは audio タグをサポートしていません。
+              </audio>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>録音ファイルはありません。</p>
+    {% endif %}
+  </section>
+</body>
+</html>

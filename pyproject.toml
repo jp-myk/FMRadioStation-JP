@@ -1,0 +1,20 @@
+[project]
+name = "radio-recorder"
+version = "0.1.0"
+description = "A script to schedule radio recordings using GNU Radio."
+authors = [{name = "Your Name", email = "you@example.com"}]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.32.3",
+    "xmltodict>=0.13.0",
+    "flask>=3.0",
+    "bootstrap-flask>=2.0",
+]
+
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []

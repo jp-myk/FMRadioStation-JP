@@ -1,0 +1,41 @@
+services:
+  radio-scheduler:
+    profiles: [cli]
+    build:
+      context: .
+      dockerfile: DockerFile
+    environment:
+      TZ: Asia/Tokyo
+    command:
+      - radio_scheduler.py
+      - --stations
+      - FMT
+      - --rec-dir
+      - /app/recordings
+      - --log-dir
+      - /app/log
+    volumes:
+      - ./recordings:/app/recordings
+      - ./log:/app/log
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+
+  radio-webui:
+    profiles: [web]
+    build:
+      context: .
+      dockerfile: DockerFile
+    environment:
+      TZ: Asia/Tokyo
+    command:
+      - radio_scheduler_webui.py
+    volumes:
+      - ./recordings:/app/recordings
+      - ./log:/app/log
+      - ./state.json:/app/state.json
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    ports:
+      - "5000:5000"
+    restart: unless-stopped

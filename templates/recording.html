@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% block title %}録画中 — Radio Recorder{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h4 class="mb-0">
+    <i class="bi bi-record-circle text-danger me-2"></i>録画中
+    {% if in_progress %}
+    <span class="badge bg-danger ms-2">{{ in_progress|length }}</span>
+    {% endif %}
+  </h4>
+</div>
+
+{% if not in_progress %}
+<div class="text-center py-5 text-secondary">
+  <i class="bi bi-record-circle fs-1 d-block mb-3 opacity-25"></i>
+  <p>現在録画中の番組はありません</p>
+  <a href="/programs" class="btn btn-outline-primary mt-2">
+    <i class="bi bi-calendar3 me-1"></i>番組表で予約する
+  </a>
+</div>
+{% else %}
+<div class="row g-3 mt-1">
+  {% for item in in_progress %}
+  {% set start = item.start_time %}
+  <div class="col-12 col-md-6 col-xl-4">
+    <div class="card border-danger recording-card">
+      <div class="card-header border-danger d-flex align-items-center justify-content-between py-2">
+        <span class="badge bg-danger">
+          <i class="bi bi-record-fill me-1"></i>録画中
+        </span>
+        <small class="text-secondary">{{ item.station_name }}</small>
+      </div>
+      <div class="card-body">
+        <h6 class="card-title mb-2">{{ item.title }}</h6>
+        <div class="small text-secondary mb-1">
+          <i class="bi bi-clock me-1"></i>
+          開始: {{ start.strftime('%H:%M') if start is not string else start[11:16] }}
+        </div>
+        <div class="small text-secondary mb-3">
+          <i class="bi bi-hourglass-split me-1"></i>
+          録音時間: {{ (item.duration // 60) }}分
+        </div>
+        <div class="progress" style="height: 6px;">
+          <div class="progress-bar bg-danger progress-bar-striped progress-bar-animated w-50"></div>
+        </div>
+        <div class="mt-1 text-end">
+          <small class="text-secondary" id="remaining-{{ loop.index }}">録音中...</small>
+        </div>
+      </div>
+      <div class="card-footer text-secondary small border-0 py-2">
+        <i class="bi bi-hdd me-1"></i>{{ item.output | basename if item.output else '—' }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

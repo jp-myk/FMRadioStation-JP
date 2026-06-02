@@ -1,0 +1,258 @@
+{% extends "layout.html" %}
+{% block title %}放映中 — Radio Recorder{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+  <h4 class="mb-0"><i class="bi bi-broadcast me-2"></i>放映中</h4>
+  <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir()">
+    <i class="bi bi-arrow-clockwise me-1"></i>更新
+  </button>
+</div>
+
+<!-- 再生中バー -->
+<div id="nowPlayingBar" class="now-playing-bar d-none">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <span id="nowPlayingBadge" class="badge bg-danger">
+      <i class="bi bi-broadcast-pin"></i> LIVE
+    </span>
+    <span id="nowPlayingTitle" class="fw-bold text-white"></span>
+    <span id="nowPlayingStation" class="text-secondary small"></span>
+    <div id="connectingSpinner" class="spinner-border spinner-border-sm text-light d-none" role="status"></div>
+    <span id="connectingStatus" class="text-secondary small"></span>
+    <div id="streamError" class="d-none"></div>
+    <button class="btn btn-sm btn-outline-danger ms-auto" id="stopBtn" onclick="stopStream()">
+      <i class="bi bi-stop-fill me-1"></i>停止
+    </button>
+  </div>
+  <audio id="streamAudio" style="display:none;"></audio>
+</div>
+
+<!-- ローディング -->
+<div id="onAirLoader" class="text-center py-5">
+  <div class="spinner-border text-primary" role="status"></div>
+  <p class="text-secondary mt-2">番組情報を取得中...</p>
+</div>
+
+<!-- エラー -->
+<div id="onAirError" class="d-none alert alert-warning mt-3">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  番組情報の取得に失敗しました。
+</div>
+
+<!-- 番組カードグリッド -->
+<div id="onAirGrid" class="row g-3 mt-1 d-none"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CARD_TEMPLATE = (prog) => {
+  const safeTitle   = prog.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const safeStation = prog.station_name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  return `
+<div class="col-12 col-sm-6 col-lg-4 col-xl-3">
+  <div class="card on-air-card h-100"
+       data-station-id="${prog.station_id}"
+       data-station-name="${safeStation}"
+       data-title="${safeTitle}"
+       data-is-recording="${prog.is_recording}"
+       onclick="playStreamFromCard(this, this.querySelector('.play-btn'))">
+    <div class="card-body p-3">
+      <div class="d-flex justify-content-between align-items-start mb-2">
+        <span class="badge bg-secondary station-badge">${prog.station_name}</span>
+        <div class="d-flex gap-1">
+          ${prog.is_recording ? '<span class="badge bg-danger"><i class="bi bi-record-fill"></i> REC</span>' : ''}
+          <span class="badge bg-danger on-air-badge"><i class="bi bi-broadcast-pin"></i> ON AIR</span>
+        </div>
+      </div>
+      <h6 class="card-title mb-1 on-air-title">${prog.title}</h6>
+      ${prog.pfm ? `<p class="card-text text-secondary small mb-1">${prog.pfm}</p>` : ''}
+      <p class="card-text text-secondary small mb-2">
+        ${prog.start_time.slice(11,16)} 〜 ${prog.end_time.slice(11,16)}
+        (${Math.floor(prog.duration/60)}分)
+      </p>
+      <div class="progress on-air-progress" style="height: 3px;">
+        <div class="progress-bar bg-danger" style="width: ${prog.progress}%"></div>
+      </div>
+    </div>
+    <div class="card-footer p-2 text-end">
+      <button class="btn btn-sm btn-danger play-btn" onclick="event.stopPropagation(); playStreamFromCard(this.closest('[data-station-id]'), this)">
+        <i class="bi bi-play-fill me-1"></i>${prog.is_recording ? '録音から再生' : '再生'}
+      </button>
+    </div>
+  </div>
+</div>`;
+};
+
+function playStreamFromCard(cardEl, btnEl) {
+  const d = cardEl.dataset;
+  playStream(d.stationId, d.stationName, d.title, d.isRecording === 'true', btnEl);
+}
+
+function loadOnAir() {
+  document.getElementById('onAirLoader').classList.remove('d-none');
+  document.getElementById('onAirGrid').classList.add('d-none');
+  document.getElementById('onAirError').classList.add('d-none');
+  document.getElementById('refreshBtn').disabled = true;
+
+  fetch('/api/on-air')
+    .then(r => r.json())
+    .then(data => {
+      const grid = document.getElementById('onAirGrid');
+      grid.innerHTML = data.map(CARD_TEMPLATE).join('');
+      grid.classList.remove('d-none');
+      document.getElementById('onAirLoader').classList.add('d-none');
+    })
+    .catch(() => {
+      document.getElementById('onAirError').classList.remove('d-none');
+      document.getElementById('onAirLoader').classList.add('d-none');
+    })
+    .finally(() => {
+      document.getElementById('refreshBtn').disabled = false;
+    });
+}
+
+function playStream(stationId, stationName, title, isRecording, btnEl) {
+  const audio        = document.getElementById('streamAudio');
+  const bar          = document.getElementById('nowPlayingBar');
+  const spinner      = document.getElementById('connectingSpinner');
+  const statusText   = document.getElementById('connectingStatus');
+  const errMsg       = document.getElementById('streamError');
+  const badge        = document.getElementById('nowPlayingBadge');
+
+  // 別局を再生中かどうかをリセット前に確認（SDR解放待ちに使用）
+  const wasStreaming = !!(audio.src && !audio.paused);
+
+  // 既存再生・タイムアウトをリセット
+  if (!audio.paused) { audio.pause(); }
+  if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
+  audio.onerror   = null;
+  audio.oncanplay = null;
+  audio.onplaying = null;
+  audio.onwaiting = null;
+  audio.onstalled = null;
+  audio.removeAttribute('src');
+  audio.load();
+
+  // 押されたボタンをローディング状態にする
+  const playLabel = isRecording ? '録音から再生' : '再生';
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>接続中...';
+  }
+  function resetBtn() {
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.innerHTML = '<i class="bi bi-play-fill me-1"></i>' + playLabel;
+    }
+  }
+
+  function showError(message) {
+    clearTimeout(window._streamTimeout);
+    window._streamTimeout = null;
+    spinner.classList.add('d-none');
+    statusText.textContent = '';
+    bar.classList.remove('bar-connecting');
+    errMsg.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + message;
+    errMsg.className = 'text-danger small';
+    resetBtn();
+    // 再生不可の場合は 4 秒後にバーを自動非表示
+    window._streamTimeout = setTimeout(() => {
+      bar.classList.add('d-none');
+      window._streamTimeout = null;
+    }, 4000);
+  }
+
+  function onConnected() {
+    if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
+    spinner.classList.add('d-none');
+    statusText.textContent = '';
+    bar.classList.remove('bar-connecting');
+    errMsg.className = 'd-none';
+    resetBtn();
+  }
+
+  // バーを「接続中」で即表示
+  document.getElementById('nowPlayingTitle').textContent = title;
+  document.getElementById('nowPlayingStation').textContent = stationName;
+  badge.innerHTML = isRecording
+    ? '<i class="bi bi-record-fill"></i> REC'
+    : '<i class="bi bi-broadcast-pin"></i> LIVE';
+  errMsg.className = 'd-none';
+  errMsg.innerHTML = '';
+  spinner.classList.remove('d-none');
+  statusText.textContent = 'ストリーム確認中...';
+  bar.classList.remove('d-none');
+  bar.classList.add('bar-connecting');
+
+  // ストリーム可否を軽量エンドポイントで確認してからオーディオ開始
+  // wasStreaming の場合、旧ストリームのSDRデバイス解放を待ってからリクエスト
+  const startFetch = () => {
+    fetch('/api/stream-status/' + stationId)
+      .then(r => r.json())
+      .then(status => {
+        if (!status.available) {
+          showError(status.reason);
+          return;
+        }
+
+        statusText.textContent = '接続中...';
+
+        // 20 秒以内に再生が始まらなければタイムアウト
+        window._streamTimeout = setTimeout(() => {
+          audio.pause();
+          audio.removeAttribute('src');
+          showError('接続タイムアウト（ストリーミングが開始されませんでした）');
+        }, 20000);
+
+        audio.onerror = function () {
+          const code = audio.error ? audio.error.code : -1;
+          const msgs = {
+            [MediaError.MEDIA_ERR_NETWORK]: 'ネットワークエラー（SDR 未接続の可能性）',
+            [MediaError.MEDIA_ERR_DECODE]:  '音声デコードエラー',
+            [MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED]: '音声形式未対応',
+          };
+          showError(msgs[code] || 'ストリーミングエラー (code=' + code + ')');
+        };
+
+        audio.onwaiting = function () {
+          spinner.classList.remove('d-none');
+          statusText.textContent = 'バッファリング中...';
+        };
+
+        audio.onstalled = function () {
+          spinner.classList.remove('d-none');
+          statusText.textContent = '接続が遅延しています...';
+        };
+
+        audio.oncanplay = function () { onConnected(); };
+        audio.onplaying = function () { onConnected(); };
+
+        audio.src = '/stream/' + stationId;
+        return audio.play();
+      })
+      .catch(err => {
+        showError(err.message);
+      });
+  };
+  setTimeout(startFetch, wasStreaming ? 1000 : 0);
+}
+
+function stopStream() {
+  const audio = document.getElementById('streamAudio');
+  if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
+  audio.onerror   = null;
+  audio.oncanplay = null;
+  audio.onplaying = null;
+  audio.onwaiting = null;
+  audio.onstalled = null;
+  audio.pause();
+  audio.src = '';
+  const bar = document.getElementById('nowPlayingBar');
+  bar.classList.add('d-none');
+  bar.classList.remove('bar-connecting');
+  document.getElementById('connectingStatus').textContent = '';
+}
+
+document.addEventListener('DOMContentLoaded', loadOnAir);
+</script>
+{% endblock %}
