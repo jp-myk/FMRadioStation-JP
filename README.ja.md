@@ -1,8 +1,8 @@
 [English](README.md) | 日本語
 
-# Radio Receiver
+# FM Radio Station JP
 
-SDR（Software Defined Radio）デバイスを使って FM ラジオを録音するプログラムです。  
+SDR（Software Defined Radio）デバイスを使って FM ラジオの聴取・録音を管理するプログラムです。  
 GNU Radioライブラリ(License: GPLv3)を使用したSDRラジオ受信です。  
 Radiko の番組表 API を利用して番組単位でスケジュール録音できます。
 
