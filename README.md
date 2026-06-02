@@ -2,7 +2,7 @@ English | [日本語](README.ja.md)
 
 # Radio Receiver
 
-A program for managing FM radio listening and recording using SDR (Software-Defined Radio) devices.
+A program for managing FM radio listening and recording using SDR (Software-Defined Radio) devices.  
 GNU Radio libraries(License: GPLv3) are used for radio reception with SDR.  
 Uses the Radiko program guide API to schedule recordings by program.
 
