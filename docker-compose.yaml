@@ -33,7 +33,7 @@ services:
     volumes:
       - ./recordings:/app/recordings
       - ./log:/app/log
-      - ./state.json:/app/state.json
+      - ./data:/app/data
     devices:
       - /dev/bus/usb:/dev/bus/usb
     ports:

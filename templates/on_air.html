@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block title %}放映中 — Radio Recorder{% endblock %}
+{% block title %}放映中 — FM Radio Station{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
@@ -45,6 +45,9 @@
 
 {% block scripts %}
 <script>
+let _streamRequestId = 0;   // 各 playStream 呼び出しに一意なID
+let _activeStationId = null; // 現在アクティブなステーション（接続中含む）
+
 const CARD_TEMPLATE = (prog) => {
   const safeTitle   = prog.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const safeStation = prog.station_name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -112,15 +115,18 @@ function loadOnAir() {
 }
 
 function playStream(stationId, stationName, title, isRecording, btnEl) {
+  // リクエストIDを採番し、古いコールバックを無効化する
+  const myRequestId  = ++_streamRequestId;
+  // 接続中・再生中を問わず既存ストリームがあれば stop-stream が必要
+  const wasActive    = _activeStationId !== null;
+  _activeStationId   = stationId; // 新ステーションを即座にアクティブとしてマーク
+
   const audio        = document.getElementById('streamAudio');
   const bar          = document.getElementById('nowPlayingBar');
   const spinner      = document.getElementById('connectingSpinner');
   const statusText   = document.getElementById('connectingStatus');
   const errMsg       = document.getElementById('streamError');
   const badge        = document.getElementById('nowPlayingBadge');
-
-  // 別局を再生中かどうかをリセット前に確認（SDR解放待ちに使用）
-  const wasStreaming = !!(audio.src && !audio.paused);
 
   // 既存再生・タイムアウトをリセット
   if (!audio.paused) { audio.pause(); }
@@ -147,6 +153,7 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
   }
 
   function showError(message) {
+    if (myRequestId !== _streamRequestId) return; // 古いリクエストは無視
     clearTimeout(window._streamTimeout);
     window._streamTimeout = null;
     spinner.classList.add('d-none');
@@ -154,6 +161,7 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
     bar.classList.remove('bar-connecting');
     errMsg.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + message;
     errMsg.className = 'text-danger small';
+    _activeStationId = null;
     resetBtn();
     // 再生不可の場合は 4 秒後にバーを自動非表示
     window._streamTimeout = setTimeout(() => {
@@ -163,6 +171,7 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
   }
 
   function onConnected() {
+    if (myRequestId !== _streamRequestId) return; // 古いリクエストは無視
     if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
     spinner.classList.add('d-none');
     statusText.textContent = '';
@@ -184,12 +193,14 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
   bar.classList.remove('d-none');
   bar.classList.add('bar-connecting');
 
-  // ストリーム可否を軽量エンドポイントで確認してからオーディオ開始
-  // wasStreaming の場合、旧ストリームのSDRデバイス解放を待ってからリクエスト
   const startFetch = () => {
+    if (myRequestId !== _streamRequestId) return; // 後続リクエストで上書き済み
+
     fetch('/api/stream-status/' + stationId)
       .then(r => r.json())
       .then(status => {
+        if (myRequestId !== _streamRequestId) return; // 後続リクエストで上書き済み
+
         if (!status.available) {
           showError(status.reason);
           return;
@@ -199,12 +210,14 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
 
         // 20 秒以内に再生が始まらなければタイムアウト
         window._streamTimeout = setTimeout(() => {
+          if (myRequestId !== _streamRequestId) return;
           audio.pause();
           audio.removeAttribute('src');
           showError('接続タイムアウト（ストリーミングが開始されませんでした）');
         }, 20000);
 
         audio.onerror = function () {
+          if (myRequestId !== _streamRequestId) return;
           const code = audio.error ? audio.error.code : -1;
           const msgs = {
             [MediaError.MEDIA_ERR_NETWORK]: 'ネットワークエラー（SDR 未接続の可能性）',
@@ -215,11 +228,13 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
         };
 
         audio.onwaiting = function () {
+          if (myRequestId !== _streamRequestId) return;
           spinner.classList.remove('d-none');
           statusText.textContent = 'バッファリング中...';
         };
 
         audio.onstalled = function () {
+          if (myRequestId !== _streamRequestId) return;
           spinner.classList.remove('d-none');
           statusText.textContent = '接続が遅延しています...';
         };
@@ -231,13 +246,23 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
         return audio.play();
       })
       .catch(err => {
+        if (myRequestId !== _streamRequestId) return;
         showError(err.message);
       });
   };
-  setTimeout(startFetch, wasStreaming ? 1000 : 0);
+
+  if (wasActive) {
+    // 旧ストリームの SDR デバイス解放を確実に待ってから新ストリームを開始
+    fetch('/api/stop-stream', { method: 'POST' })
+      .finally(() => startFetch());
+  } else {
+    startFetch();
+  }
 }
 
 function stopStream() {
+  ++_streamRequestId;  // 進行中のすべてのコールバックを無効化
+  _activeStationId = null;
   const audio = document.getElementById('streamAudio');
   if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
   audio.onerror   = null;
@@ -251,6 +276,7 @@ function stopStream() {
   bar.classList.add('d-none');
   bar.classList.remove('bar-connecting');
   document.getElementById('connectingStatus').textContent = '';
+  fetch('/api/stop-stream', { method: 'POST' }).catch(() => {});
 }
 
 document.addEventListener('DOMContentLoaded', loadOnAir);
