@@ -2,7 +2,8 @@
 
 # Radio Receiver
 
-SDR（Software Defined Radio）デバイスを使って FM/AM ラジオを録音するプログラムです。
+SDR（Software Defined Radio）デバイスを使って FM ラジオを録音するプログラムです。  
+GNU Radioライブラリを使用したSDRラジオ受信です。  
 Radiko の番組表 API を利用して番組単位でスケジュール録音できます。
 
 ## 必要なハードウェア
