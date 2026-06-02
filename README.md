@@ -3,7 +3,7 @@ English | [日本語](README.ja.md)
 # Radio Receiver
 
 A program for recording FM radio using SDR (Software Defined Radio) devices.  
-GNU Radio libraries are used for radio reception with SDR.  
+GNU Radio libraries(License: GPLv3) are used for radio reception with SDR.  
 Uses the Radiko program guide API to schedule recordings by program.
 
 ## Required Hardware
