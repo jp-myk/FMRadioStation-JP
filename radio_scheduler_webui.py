@@ -23,6 +23,7 @@ except ImportError as e:
 from radio_core.stations import STATIONS, get_station
 from radio_core.radiko import RadikoClient
 from radio_core.utils import sanitize_filename, JST, convert_datetime
+from radio_core.transcoder import stream_fd_as_mp3, stream_growing_wav_as_mp3
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -494,26 +495,18 @@ def api_stop_stream():
 
 
 def stream_from_recording(wav_path: str):
-    """録音中のWAVファイルを先頭から読んでタイムシフトストリーミング配信"""
-    WAV_HEADER_SIZE = 44
-
+    """録音中のWAVファイルを先頭から読んでタイムシフトストリーミング配信（MP3）"""
     def generate():
-        yield make_infinite_wav_header()
-        with open(wav_path, "rb") as f:
-            f.seek(WAV_HEADER_SIZE)
-            while True:
-                chunk = f.read(4096)
-                if chunk:
-                    yield chunk
-                else:
-                    if any(r["output"] == wav_path for r in IN_PROGRESS_RECORDINGS):
-                        time.sleep(0.05)
-                    else:
-                        break
+        yield from stream_growing_wav_as_mp3(
+            wav_path,
+            is_still_recording=lambda: any(
+                r["output"] == wav_path for r in IN_PROGRESS_RECORDINGS
+            ),
+        )
 
     return StreamingResponse(
         generate(),
-        media_type="audio/wav",
+        media_type="audio/mpeg",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
 
@@ -571,15 +564,7 @@ def stream_audio(station_id: str):
 
     def generate():
         try:
-            yield make_infinite_wav_header()
-            # GNU Radio 起動待ち(2〜5秒)の間、2秒分の無音PCMを先行送信
-            yield bytes(16000 * 2 * 2)  # 16kHz * int16(2byte) * 2sec
-            with os.fdopen(rfd, "rb") as f:
-                while True:
-                    chunk = f.read(4096)
-                    if not chunk:
-                        break
-                    yield chunk
+            yield from stream_fd_as_mp3(rfd)
         finally:
             with _stream_lock:
                 entry = _active_streamers.pop(station_id, None)
@@ -612,7 +597,7 @@ def stream_audio(station_id: str):
 
     return StreamingResponse(
         generate(),
-        media_type="audio/wav",
+        media_type="audio/mpeg",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
 
