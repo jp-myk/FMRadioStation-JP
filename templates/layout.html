@@ -6,7 +6,7 @@
   <title>{% block title %}FM Radio Station{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
 </head>
 <body>
   <!-- ローディングオーバーレイ -->
@@ -28,37 +28,37 @@
   <nav class="sidebar" id="sidebar">
     <ul class="nav flex-column pt-2">
       <li class="nav-item">
-        <a class="nav-link sidebar-link {% if request.path == '/' %}active{% endif %}" href="/">
+        <a class="nav-link sidebar-link {% if request.url.path == '/' %}active{% endif %}" href="/">
           <i class="bi bi-speedometer2"></i>
           <span>ダッシュボード</span>
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link sidebar-link {% if request.path == '/on-air' %}active{% endif %}" href="/on-air">
+        <a class="nav-link sidebar-link {% if request.url.path == '/on-air' %}active{% endif %}" href="/on-air">
           <i class="bi bi-broadcast"></i>
           <span>放映中</span>
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link sidebar-link {% if request.path == '/programs' %}active{% endif %}" href="/programs">
+        <a class="nav-link sidebar-link {% if request.url.path == '/programs' %}active{% endif %}" href="/programs">
           <i class="bi bi-calendar3"></i>
           <span>番組表</span>
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link sidebar-link {% if request.path == '/recording' %}active{% endif %}" href="/recording">
+        <a class="nav-link sidebar-link {% if request.url.path == '/recording' %}active{% endif %}" href="/recording">
           <i class="bi bi-record-circle"></i>
           <span>録画中</span>
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link sidebar-link {% if request.path == '/recorded' or request.path == '/recordings' %}active{% endif %}" href="/recorded">
+        <a class="nav-link sidebar-link {% if request.url.path == '/recorded' or request.url.path == '/recordings' %}active{% endif %}" href="/recorded">
           <i class="bi bi-film"></i>
           <span>録画済み</span>
         </a>
       </li>
       <li class="nav-item">
-        <a class="nav-link sidebar-link {% if request.path == '/reservations' %}active{% endif %}" href="/reservations">
+        <a class="nav-link sidebar-link {% if request.url.path == '/reservations' %}active{% endif %}" href="/reservations">
           <i class="bi bi-bookmark-check"></i>
           <span>予約</span>
         </a>
@@ -71,8 +71,17 @@
     {% block content %}{% endblock %}
   </main>
 
+  <!-- 再起動ボタン（常時表示） -->
+  <button id="restartBtn"
+          class="btn btn-warning"
+          style="position: fixed; bottom: 1.5rem; left: 1.5rem; z-index: 1050;"
+          onclick="typeof restartStream === 'function' ? restartStream() : fetch('/api/stop-stream', {method:'POST'})"
+          title="ストリームを再起動">
+    <i class="bi bi-arrow-counterclockwise me-1"></i>再起動
+  </button>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
+  <script src="{{ url_for('static', path='script.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

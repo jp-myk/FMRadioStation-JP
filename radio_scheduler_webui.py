@@ -8,11 +8,11 @@ import struct
 import io
 import fcntl
 import time
-from flask import (
-    Flask, render_template, request, redirect, url_for,
-    send_from_directory, Response, stream_with_context, jsonify
-)
-from flask_bootstrap import Bootstrap5
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import uvicorn
 
 try:
     from radio_core.receivers import FMReceiver, AMReceiver, StreamingFMReceiver, StreamingAMReceiver
@@ -24,9 +24,10 @@ from radio_core.stations import STATIONS, get_station
 from radio_core.radiko import RadikoClient
 from radio_core.utils import sanitize_filename, JST, convert_datetime
 
-app = Flask(__name__)
-Bootstrap5(app)
-app.jinja_env.filters['basename'] = os.path.basename
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+templates.env.filters['basename'] = os.path.basename
 
 # ------------------------------
 # ＜状態管理＞
@@ -179,23 +180,22 @@ def record_radio(station_id, output_file, duration, title, start_time, program_d
 
 # ------------------------------
 # ＜ページルート＞
-@app.route("/")
-def index():
-    return render_template(
-        "index.html",
-        scheduled=SCHEDULED_RECORDINGS,
-        in_progress=IN_PROGRESS_RECORDINGS,
-        completed=COMPLETED_RECORDINGS,
-    )
+@app.get("/")
+def index(request: Request):
+    return templates.TemplateResponse(request, "index.html", {
+        "scheduled": SCHEDULED_RECORDINGS,
+        "in_progress": IN_PROGRESS_RECORDINGS,
+        "completed": COMPLETED_RECORDINGS,
+    })
 
 
-@app.route("/on-air")
-def on_air():
-    return render_template("on_air.html")
+@app.get("/on-air")
+def on_air(request: Request):
+    return templates.TemplateResponse(request, "on_air.html")
 
 
-@app.route("/programs")
-def programs():
+@app.get("/programs")
+def programs(request: Request):
     today = datetime.datetime.now(JST).date()
     yesterday = today - datetime.timedelta(days=1)
     tomorrow = today + datetime.timedelta(days=1)
@@ -225,47 +225,53 @@ def programs():
         today.strftime("%Y-%m-%d"): f"今日 ({today.month}/{today.day}・{WEEKDAYS_JA[today.weekday()]})",
         tomorrow.strftime("%Y-%m-%d"): f"明日 ({tomorrow.month}/{tomorrow.day}・{WEEKDAYS_JA[tomorrow.weekday()]})",
     }
-    return render_template(
-        "programs.html",
-        stations=STATIONS,
-        program_table=program_table,
-        reservations=reserved_map,
-        date_labels=date_labels,
-    )
+    return templates.TemplateResponse(request, "programs.html", {
+        "stations": STATIONS,
+        "program_table": program_table,
+        "reservations": reserved_map,
+        "date_labels": date_labels,
+    })
 
 
-@app.route("/recording")
-def recording():
-    return render_template("recording.html", in_progress=IN_PROGRESS_RECORDINGS)
+@app.get("/recording")
+def recording(request: Request):
+    return templates.TemplateResponse(request, "recording.html", {
+        "in_progress": IN_PROGRESS_RECORDINGS,
+    })
 
 
-@app.route("/recorded")
-@app.route("/recordings")
-def recorded():
+@app.get("/recorded")
+@app.get("/recordings")
+def recorded(request: Request):
     files = [f for f in os.listdir(RECORDINGS_DIR) if f.endswith(".wav")]
-    return render_template("recorded.html", files=files, completed=COMPLETED_RECORDINGS)
+    return templates.TemplateResponse(request, "recorded.html", {
+        "files": files,
+        "completed": COMPLETED_RECORDINGS,
+    })
 
 
-@app.route("/reservations")
-def reservations():
-    return render_template("reservations.html", scheduled=SCHEDULED_RECORDINGS)
+@app.get("/reservations")
+def reservations(request: Request):
+    return templates.TemplateResponse(request, "reservations.html", {
+        "scheduled": SCHEDULED_RECORDINGS,
+    })
 
 
-@app.route('/recordings/<path:filename>')
-def serve_recordings(filename):
-    return send_from_directory(RECORDINGS_DIR, filename)
+@app.get('/recordings/{filename:path}')
+def serve_recordings(filename: str):
+    return FileResponse(os.path.join(RECORDINGS_DIR, filename))
 
 
 # ------------------------------
 # ＜予約処理＞
-@app.route("/schedule", methods=["POST"])
-def schedule_recording():
-    station_id = request.form.get("station_id")
-    title = request.form.get("title")
-    start_time = request.form.get("start_time")
-    duration = int(request.form.get("duration"))
-    program_id = request.form.get("program_id")
-
+@app.post("/schedule")
+def schedule_recording(
+    station_id: str = Form(...),
+    title: str = Form(...),
+    start_time: str = Form(...),
+    duration: int = Form(...),
+    program_id: str = Form(None),
+):
     safe_title = sanitize_filename(title)
     safe_start = start_time.replace(" ", "_").replace(":", "-")
     output_file = os.path.join(RECORDINGS_DIR, f"{safe_start}_{station_id}_{safe_title}.wav")
@@ -293,21 +299,21 @@ def schedule_recording():
         delay, record_radio,
         args=(station_id, output_file, duration, title, start_time, program_detail)
     ).start()
-    return redirect(url_for("programs"))
+    return RedirectResponse(url="/programs", status_code=302)
 
 
 # ------------------------------
 # ＜JSON API＞
-@app.route("/api/dashboard")
+@app.get("/api/dashboard")
 def api_dashboard():
-    return jsonify({
+    return {
         "scheduled": len(SCHEDULED_RECORDINGS),
         "in_progress": len(IN_PROGRESS_RECORDINGS),
         "completed": len(COMPLETED_RECORDINGS),
-    })
+    }
 
 
-@app.route("/api/on-air")
+@app.get("/api/on-air")
 def api_on_air():
     now = datetime.datetime.now(JST)
     results = []
@@ -352,10 +358,10 @@ def api_on_air():
 
     station_order = {s["id"]: i for i, s in enumerate(STATIONS)}
     results.sort(key=lambda x: station_order.get(x["station_id"], 999))
-    return jsonify(results)
+    return results
 
 
-@app.route("/api/recording")
+@app.get("/api/recording")
 def api_recording():
     now = datetime.datetime.now(JST)
     items = []
@@ -375,10 +381,10 @@ def api_recording():
             "duration": item["duration"],
             "remaining": int(remaining),
         })
-    return jsonify(items)
+    return items
 
 
-@app.route("/api/recorded")
+@app.get("/api/recorded")
 def api_recorded():
     items = []
     for item in COMPLETED_RECORDINGS:
@@ -395,10 +401,10 @@ def api_recorded():
             "filename": os.path.basename(output) if output else "",
             "file_exists": os.path.exists(output) if output else False,
         })
-    return jsonify(items)
+    return items
 
 
-@app.route("/api/reservations")
+@app.get("/api/reservations")
 def api_reservations():
     items = []
     for item in SCHEDULED_RECORDINGS:
@@ -413,36 +419,36 @@ def api_reservations():
             "duration": item["duration"],
             "program_id": item.get("program_id", ""),
         })
-    return jsonify(items)
+    return items
 
 
-@app.route("/api/reservations/<int:idx>", methods=["DELETE"])
-def api_delete_reservation(idx):
+@app.delete("/api/reservations/{idx}")
+def api_delete_reservation(idx: int):
     with _state_lock:
         if idx < 0 or idx >= len(SCHEDULED_RECORDINGS):
-            return jsonify({"error": "不正なインデックス"}), 400
+            return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
         removed = SCHEDULED_RECORDINGS.pop(idx)
     update_global_state()
     title = removed["title"] if isinstance(removed["title"], str) else str(removed["title"])
-    return jsonify({"deleted": title})
+    return {"deleted": title}
 
 
 # ------------------------------
 # ＜ストリーミング＞
-@app.route("/api/stream-status/<station_id>")
-def api_stream_status(station_id):
+@app.get("/api/stream-status/{station_id}")
+def api_stream_status(station_id: str):
     station = get_station(station_id)
     if station is None:
-        return jsonify({"available": False, "reason": "局が見つかりません"}), 404
+        return JSONResponse(content={"available": False, "reason": "局が見つかりません"}, status_code=404)
 
     in_progress = next((r for r in IN_PROGRESS_RECORDINGS if r["station_id"] == station_id), None)
     if in_progress:
-        return jsonify({"available": True, "mode": "timeshift"})
+        return {"available": True, "mode": "timeshift"}
 
     if IN_PROGRESS_RECORDINGS:
         rec = IN_PROGRESS_RECORDINGS[0]
         station_name = rec.get("station_name", rec["station_id"])
-        return jsonify({"available": False, "reason": f"「{station_name}」を録音中のため配信できません"})
+        return {"available": False, "reason": f"「{station_name}」を録音中のため配信できません"}
 
     with _stream_lock:
         active_sids = list(_active_streamers.keys())
@@ -450,12 +456,12 @@ def api_stream_status(station_id):
         active_sid = active_sids[0]
         st = get_station(active_sid)
         name = st["name"] if st else active_sid
-        return jsonify({"available": False, "reason": f"「{name}」をストリーミング中のため配信できません"})
+        return {"available": False, "reason": f"「{name}」をストリーミング中のため配信できません"}
 
-    return jsonify({"available": True, "mode": "live"})
+    return {"available": True, "mode": "live"}
 
 
-@app.route("/api/stop-stream", methods=["POST"])
+@app.post("/api/stop-stream")
 def api_stop_stream():
     with _stream_lock:
         streamers = list(_active_streamers.items())
@@ -484,7 +490,7 @@ def api_stop_stream():
         _sdr_lock.release()
     except RuntimeError:
         pass  # generate() の finally が先に解放した場合
-    return jsonify({"stopped": True})
+    return {"stopped": True}
 
 
 def stream_from_recording(wav_path: str):
@@ -505,29 +511,29 @@ def stream_from_recording(wav_path: str):
                     else:
                         break
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="audio/wav",
+    return StreamingResponse(
+        generate(),
+        media_type="audio/wav",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
 
 
-@app.route("/stream/<station_id>")
-def stream_audio(station_id):
+@app.get("/stream/{station_id}")
+def stream_audio(station_id: str):
     station = get_station(station_id)
     if station is None:
-        return jsonify({"error": "局が見つかりません"}), 404
+        return JSONResponse(content={"error": "局が見つかりません"}, status_code=404)
 
     in_progress = next((r for r in IN_PROGRESS_RECORDINGS if r["station_id"] == station_id), None)
     if in_progress:
         return stream_from_recording(in_progress["output"])
 
     if IN_PROGRESS_RECORDINGS:
-        return jsonify({"error": "他の局を録音中のため配信できません"}), 409
+        return JSONResponse(content={"error": "他の局を録音中のため配信できません"}, status_code=409)
 
     # 前のストリームが完全停止するまで最大3秒待機してSDRデバイスを排他取得
     if not _sdr_lock.acquire(blocking=True, timeout=3.0):
-        return jsonify({"error": "SDRデバイスは使用中です。しばらく待ってから再試行してください"}), 409
+        return JSONResponse(content={"error": "SDRデバイスは使用中です。しばらく待ってから再試行してください"}, status_code=409)
 
     try:
         fifo_path = f"/tmp/radio_stream_{station_id}.pcm"
@@ -552,7 +558,7 @@ def stream_audio(station_id):
             os.close(rfd)
             os.unlink(fifo_path)
             _sdr_lock.release()
-            return jsonify({"error": f"SDR初期化エラー: {e}"}), 500
+            return JSONResponse(content={"error": f"SDR初期化エラー: {e}"}, status_code=500)
 
         with _stream_lock:
             _active_streamers[station_id] = (recv_ref, fifo_path)
@@ -604,9 +610,9 @@ def stream_audio(station_id):
             except Exception:
                 pass
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="audio/wav",
+    return StreamingResponse(
+        generate(),
+        media_type="audio/wav",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
 
@@ -640,4 +646,4 @@ def reschedule_pending():
 # ------------------------------
 if __name__ == "__main__":
     reschedule_pending()
-    app.run(host="0.0.0.0", port=5000, threaded=True)
+    uvicorn.run(app, host="0.0.0.0", port=5000)

@@ -41,12 +41,14 @@
 
 <!-- 番組カードグリッド -->
 <div id="onAirGrid" class="row g-3 mt-1 d-none"></div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
 let _streamRequestId = 0;   // 各 playStream 呼び出しに一意なID
 let _activeStationId = null; // 現在アクティブなステーション（接続中含む）
+let _lastStation = null;     // 最後に再生したステーション情報（再起動用）
 
 const CARD_TEMPLATE = (prog) => {
   const safeTitle   = prog.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -120,6 +122,7 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
   // 接続中・再生中を問わず既存ストリームがあれば stop-stream が必要
   const wasActive    = _activeStationId !== null;
   _activeStationId   = stationId; // 新ステーションを即座にアクティブとしてマーク
+  _lastStation = { id: stationId, name: stationName, title, isRecording };
 
   const audio        = document.getElementById('streamAudio');
   const bar          = document.getElementById('nowPlayingBar');
@@ -237,13 +240,23 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
           if (myRequestId !== _streamRequestId) return;
           spinner.classList.remove('d-none');
           statusText.textContent = '接続が遅延しています...';
+          // SDR ロックを即座に解放し、他局への切り替えを妨げないようにする
+          _activeStationId = null;
+          fetch('/api/stop-stream', { method: 'POST' }).catch(() => {});
         };
 
         audio.oncanplay = function () { onConnected(); };
         audio.onplaying = function () { onConnected(); };
 
         audio.src = '/stream/' + stationId;
-        return audio.play();
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            if (err.name === 'AbortError') return; // pause() による意図的な中断、無視
+            if (myRequestId !== _streamRequestId) return;
+            showError('再生エラー: ' + err.message);
+          });
+        }
       })
       .catch(err => {
         if (myRequestId !== _streamRequestId) return;
@@ -263,6 +276,7 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
 function stopStream() {
   ++_streamRequestId;  // 進行中のすべてのコールバックを無効化
   _activeStationId = null;
+  _lastStation = null;
   const audio = document.getElementById('streamAudio');
   if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
   audio.onerror   = null;
@@ -277,6 +291,15 @@ function stopStream() {
   bar.classList.remove('bar-connecting');
   document.getElementById('connectingStatus').textContent = '';
   fetch('/api/stop-stream', { method: 'POST' }).catch(() => {});
+}
+
+function restartStream() {
+  if (!_lastStation) return;
+  const { id, name, title, isRecording } = _lastStation;
+  // デッドロック時は _activeStationId が null でも SDR が残っている可能性があるため
+  // 明示的に stop-stream を先に呼んでから再接続する
+  fetch('/api/stop-stream', { method: 'POST' })
+    .finally(() => playStream(id, name, title, isRecording, null));
 }
 
 document.addEventListener('DOMContentLoaded', loadOnAir);
