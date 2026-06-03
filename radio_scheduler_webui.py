@@ -4,6 +4,7 @@ import gc
 import json
 import datetime
 import threading
+import subprocess
 import struct
 import io
 import fcntl
@@ -101,6 +102,38 @@ def make_infinite_wav_header(sample_rate: int = 16000, channels: int = 1, bits: 
     buf.write(b'data')
     buf.write(struct.pack('<I', data_size))
     return buf.getvalue()
+
+
+def _needs_mp3(request: Request) -> bool:
+    """SafariはWAVストリーミング非対応のためMP3トランスコードを使用"""
+    ua = request.headers.get("user-agent", "").lower()
+    return "safari" in ua and "chrome" not in ua and "chromium" not in ua and "firefox" not in ua
+
+
+def _cleanup_stream(station_id: str, recv_ref: list, fifo_path: str):
+    """ストリーム終了時の共通リソース解放"""
+    with _stream_lock:
+        entry = _active_streamers.pop(station_id, None)
+    r = recv_ref[0]
+    recv_ref[0] = None
+    if entry is not None:
+        if r:
+            try:
+                r.stop()
+                r.wait()
+            except Exception:
+                pass
+        del r
+        try:
+            _sdr_lock.release()
+        except RuntimeError:
+            pass
+    else:
+        del r
+    try:
+        os.unlink(fifo_path)
+    except Exception:
+        pass
 
 
 # ------------------------------
@@ -493,9 +526,65 @@ def api_stop_stream():
     return {"stopped": True}
 
 
-def stream_from_recording(wav_path: str):
+def stream_from_recording(wav_path: str, use_mp3: bool = False):
     """録音中のWAVファイルを先頭から読んでタイムシフトストリーミング配信"""
     WAV_HEADER_SIZE = 44
+
+    if use_mp3:
+        def generate():
+            ffmpeg_proc = None
+            try:
+                ffmpeg_proc = subprocess.Popen(
+                    ["ffmpeg", "-y", "-loglevel", "quiet",
+                     "-f", "s16le", "-ar", "16000", "-ac", "1",
+                     "-i", "pipe:0",
+                     "-f", "mp3", "-q:a", "5", "pipe:1"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+
+                def forward_pcm():
+                    try:
+                        with open(wav_path, "rb") as f:
+                            f.seek(WAV_HEADER_SIZE)
+                            while True:
+                                chunk = f.read(4096)
+                                if chunk:
+                                    ffmpeg_proc.stdin.write(chunk)
+                                else:
+                                    if any(r["output"] == wav_path for r in IN_PROGRESS_RECORDINGS):
+                                        time.sleep(0.05)
+                                    else:
+                                        break
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            ffmpeg_proc.stdin.close()
+                        except Exception:
+                            pass
+
+                threading.Thread(target=forward_pcm, daemon=True).start()
+
+                while True:
+                    chunk = ffmpeg_proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if ffmpeg_proc:
+                    try:
+                        ffmpeg_proc.terminate()
+                        ffmpeg_proc.wait(timeout=2)
+                    except Exception:
+                        pass
+
+        return StreamingResponse(
+            generate(),
+            media_type="audio/mpeg",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
 
     def generate():
         yield make_infinite_wav_header()
@@ -519,14 +608,16 @@ def stream_from_recording(wav_path: str):
 
 
 @app.get("/stream/{station_id}")
-def stream_audio(station_id: str):
+def stream_audio(station_id: str, request: Request):
     station = get_station(station_id)
     if station is None:
         return JSONResponse(content={"error": "局が見つかりません"}, status_code=404)
 
+    use_mp3 = _needs_mp3(request)
+
     in_progress = next((r for r in IN_PROGRESS_RECORDINGS if r["station_id"] == station_id), None)
     if in_progress:
-        return stream_from_recording(in_progress["output"])
+        return stream_from_recording(in_progress["output"], use_mp3=use_mp3)
 
     if IN_PROGRESS_RECORDINGS:
         return JSONResponse(content={"error": "他の局を録音中のため配信できません"}, status_code=409)
@@ -569,6 +660,60 @@ def stream_audio(station_id: str):
         _sdr_lock.release()
         raise
 
+    if use_mp3:
+        def generate():
+            ffmpeg_proc = None
+            try:
+                ffmpeg_proc = subprocess.Popen(
+                    ["ffmpeg", "-y", "-loglevel", "quiet",
+                     "-f", "s16le", "-ar", "16000", "-ac", "1",
+                     "-i", "pipe:0",
+                     "-f", "mp3", "-q:a", "5", "pipe:1"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+
+                def forward_pcm():
+                    try:
+                        # GNU Radio 起動待ちの間、2秒分の無音PCMを先行送信
+                        ffmpeg_proc.stdin.write(bytes(16000 * 2 * 2))
+                        with os.fdopen(rfd, "rb") as f:
+                            while True:
+                                chunk = f.read(4096)
+                                if not chunk:
+                                    break
+                                ffmpeg_proc.stdin.write(chunk)
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            ffmpeg_proc.stdin.close()
+                        except Exception:
+                            pass
+
+                threading.Thread(target=forward_pcm, daemon=True).start()
+
+                while True:
+                    chunk = ffmpeg_proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if ffmpeg_proc:
+                    try:
+                        ffmpeg_proc.terminate()
+                        ffmpeg_proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                _cleanup_stream(station_id, recv_ref, fifo_path)
+
+        return StreamingResponse(
+            generate(),
+            media_type="audio/mpeg",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
+
     def generate():
         try:
             yield make_infinite_wav_header()
@@ -581,34 +726,7 @@ def stream_audio(station_id: str):
                         break
                     yield chunk
         finally:
-            with _stream_lock:
-                entry = _active_streamers.pop(station_id, None)
-
-            # 必ず参照を None に落として USB 解放を確実にする
-            r = recv_ref[0]
-            recv_ref[0] = None
-
-            if entry is not None:
-                # api_stop_stream() がまだ呼ばれていない（タブ閉じ等）
-                # → 自分で停止・USB 解放・ロック解放
-                if r:
-                    try:
-                        r.stop()
-                        r.wait()
-                    except Exception:
-                        pass
-                del r  # 参照カウント → 0、デストラクタ実行、USB 解放
-                try:
-                    _sdr_lock.release()
-                except RuntimeError:
-                    pass
-            else:
-                # api_stop_stream() が先に停止・USB 解放・ロック解放済み
-                del r
-            try:
-                os.unlink(fifo_path)
-            except Exception:
-                pass
+            _cleanup_stream(station_id, recv_ref, fifo_path)
 
     return StreamingResponse(
         generate(),
