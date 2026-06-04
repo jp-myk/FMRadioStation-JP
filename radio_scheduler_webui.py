@@ -131,6 +131,13 @@ def record_radio(station_id, output_file, duration, title, start_time, program_d
         _active_streamers.clear()
     gc.collect()
 
+    with _state_lock:
+        for scheduled_item in SCHEDULED_RECORDINGS[:]:
+            if scheduled_item.get("output") == output_file:
+                SCHEDULED_RECORDINGS.remove(scheduled_item)
+                break
+    update_global_state()
+
     in_progress_item = {
         "title": title,
         "station_id": station_id,
@@ -421,6 +428,38 @@ def api_reservations():
             "program_id": item.get("program_id", ""),
         })
     return items
+
+
+def _delete_recording_files(output: str):
+    if output and os.path.exists(output):
+        try:
+            os.remove(output)
+        except Exception:
+            pass
+    json_file = output.rsplit('.', 1)[0] + ".json" if output else ""
+    if json_file and os.path.exists(json_file):
+        try:
+            os.remove(json_file)
+        except Exception:
+            pass
+
+
+@app.delete("/api/recorded/{idx}")
+def api_delete_recorded(idx: int):
+    with _state_lock:
+        if idx < 0 or idx >= len(COMPLETED_RECORDINGS):
+            return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
+        removed = COMPLETED_RECORDINGS.pop(idx)
+    update_global_state()
+    _delete_recording_files(removed.get("output", ""))
+    return {"deleted": str(removed["title"])}
+
+
+@app.delete("/api/recorded/files/{filename:path}")
+def api_delete_recorded_file(filename: str):
+    filepath = os.path.join(RECORDINGS_DIR, os.path.basename(filename))
+    _delete_recording_files(filepath)
+    return {"deleted": filename}
 
 
 @app.delete("/api/reservations/{idx}")

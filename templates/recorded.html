@@ -47,11 +47,15 @@
         {% endif %}
       </div>
       {% if fname %}
-      <div class="card-footer border-0 pt-0 pb-2 px-3 text-end">
+      <div class="card-footer border-0 pt-0 pb-2 px-3 d-flex justify-content-end gap-2">
         <a href="{{ url_for('serve_recordings', filename=fname) }}" download
            class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-download me-1"></i>ダウンロード
         </a>
+        <button class="btn btn-sm btn-outline-danger"
+                onclick="deleteRecording({{ loop.index0 }}, this)">
+          <i class="bi bi-trash3 me-1"></i>削除
+        </button>
       </div>
       {% endif %}
     </div>
@@ -73,11 +77,15 @@
                src="{{ url_for('serve_recordings', filename=filename) }}">
         </audio>
       </div>
-      <div class="card-footer border-0 pt-0 pb-2 px-3 text-end">
+      <div class="card-footer border-0 pt-0 pb-2 px-3 d-flex justify-content-end gap-2">
         <a href="{{ url_for('serve_recordings', filename=filename) }}" download
            class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-download me-1"></i>ダウンロード
         </a>
+        <button class="btn btn-sm btn-outline-danger"
+                onclick="deleteRecordingFile('{{ filename }}', this)">
+          <i class="bi bi-trash3 me-1"></i>削除
+        </button>
       </div>
     </div>
   </div>
@@ -86,4 +94,34 @@
 {% endif %}
 
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function deleteRecording(idx, btn) {
+  if (!confirm('この録音ファイルを削除しますか？')) return;
+  btn.disabled = true;
+  fetch('/api/recorded/' + idx, { method: 'DELETE' })
+    .then(r => { if (!r.ok) throw new Error('削除に失敗しました'); return r; })
+    .then(() => {
+      const card = btn.closest('.col-12');
+      card.classList.add('fade-out');
+      setTimeout(() => card.remove(), 300);
+    })
+    .catch(err => { alert(err.message); btn.disabled = false; });
+}
+
+function deleteRecordingFile(filename, btn) {
+  if (!confirm('この録音ファイルを削除しますか？')) return;
+  btn.disabled = true;
+  fetch('/api/recorded/files/' + encodeURIComponent(filename), { method: 'DELETE' })
+    .then(r => { if (!r.ok) throw new Error('削除に失敗しました'); return r; })
+    .then(() => {
+      const card = btn.closest('.col-12');
+      card.classList.add('fade-out');
+      setTimeout(() => card.remove(), 300);
+    })
+    .catch(err => { alert(err.message); btn.disabled = false; });
+}
+</script>
 {% endblock %}
