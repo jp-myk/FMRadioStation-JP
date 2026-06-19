@@ -27,6 +27,14 @@
   <audio id="streamAudio" style="display:none;"></audio>
 </div>
 
+<!-- 自動字幕パネル -->
+<div id="transcriptPanel" class="transcript-panel d-none">
+  <div class="transcript-header">
+    <i class="bi bi-card-text me-1"></i>自動字幕<span class="badge bg-secondary ms-2">ベータ</span>
+  </div>
+  <div id="transcriptBody" class="transcript-body"></div>
+</div>
+
 <!-- ローディング -->
 <div id="onAirLoader" class="text-center py-5">
   <div class="spinner-border text-primary" role="status"></div>
@@ -49,6 +57,59 @@
 let _streamRequestId = 0;   // 各 playStream 呼び出しに一意なID
 let _activeStationId = null; // 現在アクティブなステーション（接続中含む）
 let _lastStation = null;     // 最後に再生したステーション情報（再起動用）
+let _transcriptTimer = null; // 字幕ポーリングの interval
+let _transcriptStation = null;
+let _asrCursor = 0;          // 取得済みセグメント数
+
+function startTranscript(stationId) {
+  // 同じ局で既にポーリング中なら何もしない
+  if (_transcriptTimer && _transcriptStation === stationId) return;
+  stopTranscript();
+  _transcriptStation = stationId;
+  _asrCursor = 0;
+  const panel = document.getElementById('transcriptPanel');
+  const body  = document.getElementById('transcriptBody');
+  body.innerHTML = '<div class="transcript-empty">認識待機中...</div>';
+  panel.classList.remove('d-none');
+  const myRequestId = _streamRequestId;
+  let unavailableShown = false;
+  let hasText = false;
+
+  const poll = () => {
+    if (myRequestId !== _streamRequestId) { stopTranscript(); return; }
+    fetch('/api/transcript/' + stationId + '?since=' + _asrCursor)
+      .then(r => r.json())
+      .then(data => {
+        if (myRequestId !== _streamRequestId) return;
+        if (data.available === false) {
+          if (!unavailableShown) {
+            body.innerHTML = '<div class="transcript-empty">音声認識は利用できません</div>';
+            unavailableShown = true;
+          }
+          return;
+        }
+        if (data.segments && data.segments.length) {
+          if (!hasText) { body.innerHTML = ''; hasText = true; }
+          for (const s of data.segments) {
+            const line = document.createElement('div');
+            line.className = 'transcript-line';
+            line.textContent = s.text;
+            body.appendChild(line);
+          }
+          _asrCursor = data.cursor;
+          body.scrollTop = body.scrollHeight;
+        }
+      })
+      .catch(() => {});
+  };
+  poll();
+  _transcriptTimer = setInterval(poll, 1500);
+}
+
+function stopTranscript() {
+  if (_transcriptTimer) { clearInterval(_transcriptTimer); _transcriptTimer = null; }
+  _transcriptStation = null;
+}
 
 const CARD_TEMPLATE = (prog) => {
   const safeTitle   = prog.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -165,6 +226,8 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
     errMsg.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + message;
     errMsg.className = 'text-danger small';
     _activeStationId = null;
+    stopTranscript();
+    document.getElementById('transcriptPanel').classList.add('d-none');
     resetBtn();
     // 再生不可の場合は 4 秒後にバーを自動非表示
     window._streamTimeout = setTimeout(() => {
@@ -181,6 +244,7 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
     bar.classList.remove('bar-connecting');
     errMsg.className = 'd-none';
     resetBtn();
+    startTranscript(stationId);
   }
 
   // バーを「接続中」で即表示
@@ -290,6 +354,7 @@ function stopStream() {
   bar.classList.add('d-none');
   bar.classList.remove('bar-connecting');
   document.getElementById('connectingStatus').textContent = '';
+  stopTranscript();  // ポーリング停止（パネルは停止後も読めるよう残す）
   fetch('/api/stop-stream', { method: 'POST' }).catch(() => {});
 }
 

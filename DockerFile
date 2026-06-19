@@ -1,3 +1,31 @@
+# --- Stage 0: ASR ランタイム（CrispASR）ビルド ---
+# parakeet-tdt_ctc-0.6b-ja の GGUF を実行する C++/ggml ランタイム。
+# BUILD_SHARED_LIBS=OFF で crispasr-lib / ggml を静的リンクし、自己完結バイナリ
+# build/bin/crispasr を生成 → 最終イメージへバイナリ 1 個だけコピーする
+# （これをしないと libcrispasr.so.1 が無く実行時に exit 127 となる）。
+# torch/NeMo は不要（GGUF は変換済みを data/models にマウントする）。
+FROM debian:bookworm-slim AS asr-builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    cmake \
+    build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+# 検証済みコミットに pin（2026-06-17 時点、ja GGUF で動作確認）。更新時は SHA を差し替える。
+ARG CRISPASR_REF=2ae661eb538de1b2d3db649c5ad71e7fabf483fa
+RUN git clone https://github.com/CrispStrobe/CrispASR.git src && \
+    git -C src checkout "${CRISPASR_REF}" && \
+    git -C src submodule update --init --recursive && \
+    cmake -S src -B src/build -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCRISPASR_BUILD_TESTS=OFF \
+        -DCRISPASR_BUILD_SERVER=OFF && \
+    cmake --build src/build --target crispasr-cli -j "$(nproc)" && \
+    install -Dm755 src/build/bin/crispasr /out/crispasr
+
 # --- Stage 1: Base Image ---
 # Debian "Bookworm" ベースの軽量な公式Pythonイメージを使用
 FROM debian:bookworm-slim
@@ -35,11 +63,16 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY README.md .
 COPY radio_core/ radio_core/
+COPY asr_core/ asr_core/
 
 # uvを使ってpyproject.tomlから依存関係をインストール
 # --system: 仮想環境を作らず、システムのPython環境に直接インストール (Dockerのベストプラクティス)
 # --no-cache: Dockerレイヤーのキャッシュを利用するため、uv自体のキャッシュは無効化しイメージサイズを削減
 RUN uv pip install --system --no-cache --break-system-packages .
+
+# ASR ランタイム（crispasr）をビルドステージからコピー。
+# GGUF モデル本体はイメージに焼かず、docker-compose で data/models をマウントする。
+COPY --from=asr-builder /out/crispasr /usr/local/bin/crispasr
 
 # アプリケーションのソースコードをコンテナにコピー
 COPY radio_receiver.py .
@@ -47,6 +80,7 @@ COPY radio_scheduler.py .
 COPY radio_scheduler_webui.py .
 COPY templates/ templates/
 COPY static/ static/
+COPY config/ config/
 
 # --- Stage 5: Execution Command ---
 # コンテナ起動時にスクリプトを実行 (docker-compose 側でコマンドを上書き可能)

@@ -1,0 +1,3 @@
+# ASR model weights (large binaries, fetched separately)
+*.gguf
+data/models/

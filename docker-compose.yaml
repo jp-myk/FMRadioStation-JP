@@ -28,6 +28,10 @@ services:
       dockerfile: DockerFile
     environment:
       TZ: Asia/Tokyo
+      # ASR（字幕生成）: CrispASR バイナリ + 変換済み GGUF。
+      # GGUF は data/models にマウントしたものを参照する。
+      PARAKEET_CPP_BIN: /usr/local/bin/crispasr
+      PARAKEET_MODEL: /app/data/models/parakeet-tdt-0.6b-ja.gguf
     command:
       - radio_scheduler_webui.py
     volumes:

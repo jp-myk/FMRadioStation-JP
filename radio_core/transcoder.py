@@ -2,7 +2,7 @@ import os
 import subprocess
 import threading
 import time
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Optional
 
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -17,8 +17,16 @@ _FFMPEG_CMD = [
 ]
 
 
-def stream_fd_as_mp3(rfd: int, startup_silence_sec: float = 3.0) -> Iterator[bytes]:
-    """FIFO fd からリアルタイムで PCM を読み込み MP3 チャンクを生成する（ライブストリーム用）"""
+def stream_fd_as_mp3(
+    rfd: int,
+    startup_silence_sec: float = 3.0,
+    on_pcm: Optional[Callable[[bytes], None]] = None,
+) -> Iterator[bytes]:
+    """FIFO fd からリアルタイムで PCM を読み込み MP3 チャンクを生成する（ライブストリーム用）
+
+    on_pcm が指定された場合、ffmpeg に送る実音声 PCM チャンクと同じものを渡す
+    （起動時の無音プリアンブルは渡さない）。音声認識タップ等に利用する。
+    """
     proc = subprocess.Popen(
         _FFMPEG_CMD,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -31,6 +39,11 @@ def stream_fd_as_mp3(rfd: int, startup_silence_sec: float = 3.0) -> Iterator[byt
             proc.stdin.write(silence)
             with os.fdopen(rfd, "rb") as f:
                 for chunk in iter(lambda: f.read(_CHUNK), b""):
+                    if on_pcm is not None:
+                        try:
+                            on_pcm(chunk)
+                        except Exception:
+                            pass  # タップ側の失敗で配信を止めない
                     proc.stdin.write(chunk)
         finally:
             try:
@@ -47,9 +60,14 @@ def stream_fd_as_mp3(rfd: int, startup_silence_sec: float = 3.0) -> Iterator[byt
 
 
 def stream_growing_wav_as_mp3(
-    wav_path: str, is_still_recording: Callable[[], bool]
+    wav_path: str,
+    is_still_recording: Callable[[], bool],
+    on_pcm: Optional[Callable[[bytes], None]] = None,
 ) -> Iterator[bytes]:
-    """成長中の WAV ファイルの PCM を MP3 チャンクとして生成する（タイムシフト用）"""
+    """成長中の WAV ファイルの PCM を MP3 チャンクとして生成する（タイムシフト用）
+
+    on_pcm が指定された場合、ffmpeg に送る PCM チャンクと同じものを渡す。
+    """
     WAV_HEADER_SIZE = 44
 
     proc = subprocess.Popen(
@@ -64,6 +82,11 @@ def stream_growing_wav_as_mp3(
                 while True:
                     chunk = f.read(_CHUNK)
                     if chunk:
+                        if on_pcm is not None:
+                            try:
+                                on_pcm(chunk)
+                            except Exception:
+                                pass  # タップ側の失敗で配信を止めない
                         proc.stdin.write(chunk)
                     elif is_still_recording():
                         time.sleep(0.05)

@@ -1,0 +1,14 @@
+# silero-vad / 発話区間検出のパラメータ（asr_core が読み込む）
+# 録音ファイルの字幕生成（バッチ get_speech_timestamps）と、ライブ配信の
+# ストリーミング字幕（SpeechSegmenter）の両方がこの値を参照する。
+vad:
+  # --- silero-vad 検出パラメータ ---
+  threshold: 0.4                 # speech と判定する音声確率のしきい値
+  min_speech_duration_ms: 250    # これ未満の発話は雑音として破棄
+  min_silence_duration_ms: 100   # この長さ以上の無音で発話を区切る
+  speech_pad_ms: 30              # 検出区間の前後に付与するパディング余白
+
+  # --- ASR セグメント化の補助設定 ---
+  frame_samples: 512             # ライブ用 VAD フレーム長（16kHz で 512=32ms）
+  max_speech_duration_s: 18      # 1 セグメントの上限秒（parakeet は発話単位入力を要する）
+  context_sec: 0.5               # ライブで語頭欠落を防ぐ前方文脈 pre-roll（秒）
