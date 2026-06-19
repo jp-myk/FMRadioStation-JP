@@ -1,7 +1,7 @@
 """ParakeetCppBackend の検証（実バイナリ不要・subprocess をモック）。
 
-実ランタイムは CrispASR（``crispasr -m <gguf> -f <wav>``）を想定。バイナリは
-``shutil.which`` で解決するため、テストでは解決をモックして有効化する。
+実ランタイムは parakeet.cpp（``parakeet-cli transcribe --model <gguf> --input <wav>``）を
+想定。バイナリは ``shutil.which`` で解決するため、テストでは解決をモックして有効化する。
 """
 import subprocess
 from unittest import mock
@@ -16,28 +16,30 @@ def _completed(stdout=b"", stderr=b"", returncode=0):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-def _backend(bin_path="crispasr", model="m.gguf", language="ja"):
+def _backend(bin_path="parakeet-cli", model="m.gguf", language="ja"):
     """バイナリ解決をモックして有効化済みの backend を作る。"""
     cfg = ASRConfig(parakeet_bin=bin_path, parakeet_model=model, parakeet_language=language)
     with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/" + bin_path):
         return ParakeetCppBackend(cfg)
 
 
-def test_command_uses_model_wav_backend_and_language():
-    backend = _backend(bin_path="crispasr", model="m.gguf", language="ja")
+def test_command_uses_transcribe_model_input_decoder_and_language():
+    backend = _backend(bin_path="parakeet-cli", model="m.gguf", language="ja")
     cmd = backend._build_command("/tmp/a.wav")
-    assert cmd[0] == "/usr/bin/crispasr"
-    assert cmd[1:5] == ["-m", "m.gguf", "-f", "/tmp/a.wav"]
-    # parakeet backend を明示し、-l で言語固定して LID（whisper 追加ロード）を回避する。
-    assert "--backend" in cmd and cmd[cmd.index("--backend") + 1] == "parakeet"
-    assert "-l" in cmd and cmd[cmd.index("-l") + 1] == "ja"
+    assert cmd[0] == "/usr/bin/parakeet-cli"
+    assert cmd[1] == "transcribe"
+    assert "--model" in cmd and cmd[cmd.index("--model") + 1] == "m.gguf"
+    assert "--input" in cmd and cmd[cmd.index("--input") + 1] == "/tmp/a.wav"
+    # TDT デコーダを明示し、--lang で言語を固定する。
+    assert "--decoder" in cmd and cmd[cmd.index("--decoder") + 1] == "tdt"
+    assert "--lang" in cmd and cmd[cmd.index("--lang") + 1] == "ja"
 
 
-def test_command_omits_language_when_unset():
+def test_command_omits_language_when_unset_but_keeps_decoder():
     backend = _backend(language="")
     cmd = backend._build_command("/tmp/a.wav")
-    assert "-l" not in cmd
-    assert "--backend" in cmd  # backend 明示は言語設定に依らず常に付く
+    assert "--lang" not in cmd
+    assert "--decoder" in cmd  # デコーダ明示は言語設定に依らず常に付く
 
 
 def test_transcribe_parses_stdout_and_cleans_tempfile():
@@ -46,7 +48,7 @@ def test_transcribe_parses_stdout_and_cleans_tempfile():
     seen_paths = []
 
     def fake_run(cmd, **kwargs):
-        wav_path = cmd[cmd.index("-f") + 1]
+        wav_path = cmd[cmd.index("--input") + 1]
         seen_paths.append(wav_path)
         import os
         assert os.path.exists(wav_path)  # 推論中は一時 WAV が存在
@@ -89,8 +91,8 @@ def test_disabled_when_binary_missing_returns_empty():
 
 def test_disabled_when_model_unset_returns_empty():
     """GGUF 未設定でも例外を投げず空文字を返す。"""
-    cfg = ASRConfig(parakeet_bin="crispasr", parakeet_model="")
-    with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/crispasr"):
+    cfg = ASRConfig(parakeet_bin="parakeet-cli", parakeet_model="")
+    with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"):
         backend = ParakeetCppBackend(cfg)
     with mock.patch("subprocess.run", side_effect=AssertionError("呼ばれてはいけない")):
         assert backend.transcribe(np.zeros(16, dtype=np.int16), 16000) == ""

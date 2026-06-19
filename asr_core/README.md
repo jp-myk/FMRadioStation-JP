@@ -59,43 +59,49 @@ pip install -e .   # onnxruntime, numpy を含む
 
 ### 2. silero-vad ONNX モデル
 
-`asr_core/models/silero_vad.onnx` に配置するか、`SILERO_VAD_ONNX` で場所を指定する。
+VAD・ASR のモデルは **`data/models/`** に揃えて置く（`MODELS_DIR` で一括変更、
+個別は `SILERO_VAD_ONNX` / `PARAKEET_MODEL` で上書き可）。1.4GB の GGUF はイメージに
+焼かず `./data` をマウントして供給するため、小さな VAD onnx も同じ場所に統一している。
 
 ```bash
-mkdir -p asr_core/models
-# silero-vad リポジトリ等から v5 の ONNX を取得して配置
+mkdir -p data/models
+# silero-vad リポジトリ等から v5 の ONNX を取得して data/models/silero_vad.onnx に配置
 #   入出力: input[1,512], state[2,1,128], sr(int64) → output[1,1], stateN
 ```
 
-### 3. ASR ランタイム（CrispASR）＋ GGUF モデル
+### 3. ASR ランタイム（parakeet.cpp）＋ GGUF モデル
 
-実ランタイムは [`CrispStrobe/CrispASR`](https://github.com/CrispStrobe/CrispASR) の
-`crispasr`（whisper.cpp フォーク、C++/ggml）。GGUF は
-[`cstr/parakeet-tdt-0.6b-ja-GGUF`](https://huggingface.co/cstr/parakeet-tdt-0.6b-ja-GGUF)
-の **F16**（`nvidia/parakeet-tdt_ctc-0.6b-ja` を変換済み・NeMo とビット一致、CER 6.4%）を使う。
-torch/NeMo は不要。
+実ランタイムは [`mudler/parakeet.cpp`](https://github.com/mudler/parakeet.cpp) の
+`parakeet-cli`（C++/ggml）。モデルは `nvidia/parakeet-tdt_ctc-0.6b-ja`（日本語専用・
+TDT/CTC ハイブリッド）を変換した GGUF を使う。torch/NeMo は不要。
 
 ```bash
-# 1) ランタイムをビルド（C++17 + cmake のみ）
-git clone https://github.com/CrispStrobe/CrispASR
-cd CrispASR && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-#   → build/bin/crispasr（静的寄り・ランタイム共有ライブラリ不要）
+# 1) ランタイムをビルド（C++17 + cmake のみ。ggml は submodule なので --recursive 必須）
+git clone --recursive https://github.com/mudler/parakeet.cpp
+cd parakeet.cpp && cmake -B build -DPARAKEET_BUILD_CLI=ON && cmake --build build -j
+#   → build/examples/cli/parakeet-cli
 
-# 2) 変換済み GGUF を取得（HF_TOKEN で）
-curl -fsSL -H "Authorization: Bearer $HF_TOKEN" \
-  -o data/models/parakeet-tdt-0.6b-ja.gguf \
-  https://huggingface.co/cstr/parakeet-tdt-0.6b-ja-GGUF/resolve/main/parakeet-tdt-0.6b-ja.gguf
+# 2) parakeet.cpp 形式の GGUF へ変換して data/models/ に出力（一度きり・torch/NeMo を使用）
+./scripts/convert_ja_gguf.sh
+#   → data/models/parakeet-tdt-0.6b-ja.gguf（F16, 約1.4GB）
+#   nvidia/parakeet-tdt_ctc-0.6b-ja を parakeet.cpp の convert_parakeet_to_gguf.py で変換する。
 
-export PARAKEET_CPP_BIN=/path/to/build/bin/crispasr
+export PARAKEET_CPP_BIN=/path/to/build/examples/cli/parakeet-cli
 export PARAKEET_MODEL=$PWD/data/models/parakeet-tdt-0.6b-ja.gguf
 ```
 
-CLI は `crispasr -m <gguf> -f <wav>`。backend（parakeet/TDT）と言語は GGUF
-メタデータから自動判定されるため、デコーダ／言語フラグは付けない。
+> **注意（GGUF の形式）**: CrispASR 用 GGUF（`cstr/parakeet-tdt-0.6b-ja-GGUF` 等、metadata が
+> フラットな `parakeet.d_model …`）は parakeet-cli では読めず `failed to load model` になる。
+> parakeet.cpp は自前の schema（`parakeet.arch` / `parakeet.encoder.*`）を要求するため、必ず上の
+> `scripts/convert_ja_gguf.sh`（= `convert_parakeet_to_gguf.py`）で作り直した GGUF を使う。
+
+CLI は `parakeet-cli transcribe --model <gguf> --input <wav> --decoder tdt --lang ja`。
+ハイブリッドモデルのため `--decoder tdt` を明示し、`--lang ja` で言語を固定する。入力は
+16kHz / mono、出力は plain text を stdout へ返す。
 `PARAKEET_CPP_BIN` が PATH に無い、または `PARAKEET_MODEL` 未設定のときは ASR を
 無効化して放送再生は継続する（起動時に一度だけ警告）。
 
-> Docker では `DockerFile` の `asr-builder` ステージが `crispasr` をビルドして
+> Docker では `DockerFile` の `asr-builder` ステージで ASR バイナリをビルドして
 > 最終イメージへコピーし、GGUF は `docker-compose.yaml` で `./data/models` を
 > マウントして `PARAKEET_MODEL` から参照する（イメージには焼かない）。
 

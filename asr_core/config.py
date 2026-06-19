@@ -47,6 +47,33 @@ def _load_vad_config() -> dict:
 _VAD = _load_vad_config()
 
 
+# VAD（onnx）・ASR（gguf）の両モデルを置く単一ディレクトリ。
+# 既定はリポジトリ直下（コンテナでは /app）の data/models。1.4GB の GGUF は
+# イメージに焼かず ./data をマウントして供給する設計のため、小さな VAD onnx も
+# 同じ data/models に揃える（保存先の一貫性）。MODELS_DIR で一括変更でき、
+# 個別パスは SILERO_VAD_ONNX / PARAKEET_MODEL で上書きできる。
+_DEFAULT_MODELS_DIR = os.path.abspath(
+    os.environ.get(
+        "MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "data", "models")
+    )
+)
+
+
+def _default_parakeet_model() -> str:
+    """ASR モデル（gguf）の既定パスを返す。
+
+    PARAKEET_MODEL があればそれを優先。無ければ data/models 既定パスを使うが、
+    ファイルが実在する時だけパスを返し、不在なら "" を返す。これにより未配置時は
+    ASR を graceful に無効化し、セグメント毎の "failed to load model" を出さない
+    （従来の parakeet_model 未設定時と同じ挙動を保つ）。
+    """
+    env = os.environ.get("PARAKEET_MODEL")
+    if env:
+        return env
+    path = os.path.join(_DEFAULT_MODELS_DIR, "parakeet-tdt-0.6b-ja.gguf")
+    return path if os.path.exists(path) else ""
+
+
 @dataclass
 class ASRConfig:
     # --- 音声フォーマット（既存パイプラインに合わせて 16k/mono/int16 固定） ---
@@ -75,9 +102,7 @@ class ASRConfig:
     parakeet_bin: str = field(
         default_factory=lambda: os.environ.get("PARAKEET_CPP_BIN", "parakeet-cli")
     )
-    parakeet_model: str = field(
-        default_factory=lambda: os.environ.get("PARAKEET_MODEL", "")
-    )
+    parakeet_model: str = field(default_factory=_default_parakeet_model)
     parakeet_language: str = "ja"
     asr_timeout_sec: float = 120.0  # 1 セグメント推論のタイムアウト
 
@@ -85,7 +110,7 @@ class ASRConfig:
     vad_model_path: str = field(
         default_factory=lambda: os.environ.get(
             "SILERO_VAD_ONNX",
-            os.path.join(os.path.dirname(__file__), "models", "silero_vad.onnx"),
+            os.path.join(_DEFAULT_MODELS_DIR, "silero_vad.onnx"),
         )
     )
 

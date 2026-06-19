@@ -1,8 +1,9 @@
-# --- Stage 0: ASR ランタイム（CrispASR）ビルド ---
+# --- Stage 0: ASR ランタイム（parakeet.cpp）ビルド ---
 # parakeet-tdt_ctc-0.6b-ja の GGUF を実行する C++/ggml ランタイム。
-# BUILD_SHARED_LIBS=OFF で crispasr-lib / ggml を静的リンクし、自己完結バイナリ
-# build/bin/crispasr を生成 → 最終イメージへバイナリ 1 個だけコピーする
-# （これをしないと libcrispasr.so.1 が無く実行時に exit 127 となる）。
+# BUILD_SHARED_LIBS=OFF で parakeet / ggml を静的リンクし、自己完結バイナリ
+# build/examples/cli/parakeet-cli を生成 → 最終イメージへバイナリ 1 個だけコピーする
+# （これをしないと共有ライブラリが無く実行時に exit 127 となる）。
+# GGML_NATIVE=OFF でホスト固有 ISA 拡張を無効化し、別 CPU 上でも動く可搬ビルドにする。
 # torch/NeMo は不要（GGUF は変換済みを data/models にマウントする）。
 FROM debian:bookworm-slim AS asr-builder
 ENV DEBIAN_FRONTEND=noninteractive
@@ -14,17 +15,17 @@ RUN apt-get update && \
     build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
-# 検証済みコミットに pin（2026-06-17 時点、ja GGUF で動作確認）。更新時は SHA を差し替える。
-ARG CRISPASR_REF=2ae661eb538de1b2d3db649c5ad71e7fabf483fa
-RUN git clone https://github.com/CrispStrobe/CrispASR.git src && \
-    git -C src checkout "${CRISPASR_REF}" && \
+# リリースタグに pin（2026-06-17 時点の v0.3.2）。更新時はタグを差し替える。
+ARG PARAKEET_REF=v0.3.2
+RUN git clone https://github.com/mudler/parakeet.cpp.git src && \
+    git -C src checkout "${PARAKEET_REF}" && \
     git -C src submodule update --init --recursive && \
     cmake -S src -B src/build -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=OFF \
-        -DCRISPASR_BUILD_TESTS=OFF \
-        -DCRISPASR_BUILD_SERVER=OFF && \
-    cmake --build src/build --target crispasr-cli -j "$(nproc)" && \
-    install -Dm755 src/build/bin/crispasr /out/crispasr
+        -DGGML_NATIVE=OFF \
+        -DPARAKEET_BUILD_TESTS=OFF && \
+    cmake --build src/build -j "$(nproc)" && \
+    install -Dm755 src/build/examples/cli/parakeet-cli /out/parakeet-cli
 
 # --- Stage 1: Base Image ---
 # Debian "Bookworm" ベースの軽量な公式Pythonイメージを使用
@@ -70,9 +71,10 @@ COPY asr_core/ asr_core/
 # --no-cache: Dockerレイヤーのキャッシュを利用するため、uv自体のキャッシュは無効化しイメージサイズを削減
 RUN uv pip install --system --no-cache --break-system-packages .
 
-# ASR ランタイム（crispasr）をビルドステージからコピー。
-# GGUF モデル本体はイメージに焼かず、docker-compose で data/models をマウントする。
-COPY --from=asr-builder /out/crispasr /usr/local/bin/crispasr
+# ASR ランタイム（parakeet-cli）をビルドステージからコピー。
+# モデル本体（VAD onnx / ASR gguf）はイメージに焼かず、docker-compose で
+# data/models をマウントし MODELS_DIR から参照する（イメージ非同梱）。
+COPY --from=asr-builder /out/parakeet-cli /usr/local/bin/parakeet-cli
 
 # アプリケーションのソースコードをコンテナにコピー
 COPY radio_receiver.py .

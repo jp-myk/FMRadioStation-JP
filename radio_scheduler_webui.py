@@ -163,7 +163,7 @@ def _on_pcm(chunk: bytes):
 
 # ------------------------------
 # ＜録音ファイルの字幕生成（WebVTT・非同期バッチ）＞
-# 録音済み WAV を crispasr でファイル全体一括認識し、<base>.vtt（WebVTT）を生成する。
+# 録音済み WAV を parakeet-cli でファイル全体一括認識し、<base>.vtt（WebVTT）を生成する。
 # CPU 重いので単一ワーカーで直列化し、ファイルごとに状態を持つ。
 _ASR_BATCH_AVAILABLE = bool(_ASR_AVAILABLE and asr_batch_available and asr_batch_available())
 _transcribe_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="asr-vtt")
@@ -616,7 +616,7 @@ def api_transcribe_start(filename: str):
         return JSONResponse(content={"error": "ファイルが見つかりません"}, status_code=404)
     if not _ASR_BATCH_AVAILABLE:
         return JSONResponse(
-            content={"error": "字幕生成は利用できません（crispasr / モデル未設定）"},
+            content={"error": "字幕生成は利用できません（parakeet-cli / モデル未設定）"},
             status_code=503,
         )
     if _has_vtt(base):

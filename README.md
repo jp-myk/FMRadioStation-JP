@@ -86,6 +86,27 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv pip install --system .
 ```
 
+### Speech Recognition Models (for auto-subtitles)
+
+The Web UI's auto-subtitle feature uses two models placed under `data/models/`:
+
+- `silero_vad.onnx` — voice activity detection (downloaded)
+- `parakeet-tdt-0.6b-ja.gguf` — Japanese ASR for parakeet.cpp (converted from `nvidia/parakeet-tdt_ctc-0.6b-ja`)
+
+Install both with one script:
+
+```bash
+./scripts/install_models.sh
+```
+
+This downloads `silero_vad.onnx`, and—because no parakeet.cpp-format Japanese GGUF is published—converts `nvidia/parakeet-tdt_ctc-0.6b-ja` to GGUF via `scripts/convert_ja_gguf.sh` (needs Python + torch/NeMo; runs once on the host). If you host your own converted GGUF, set `PARAKEET_GGUF_URL` to download it instead:
+
+```bash
+PARAKEET_GGUF_URL=https://example.com/parakeet-tdt-0.6b-ja.gguf ./scripts/install_models.sh
+```
+
+Both models are mounted into the container via `./data:/app/data` (not baked into the image). Override the directory with `MODELS_DIR`, or individual paths with `SILERO_VAD_ONNX` / `PARAKEET_MODEL`. If the models are absent, recording/playback still works — only subtitles are disabled.
+
 ---
 
 ## Starting and Stopping
@@ -169,6 +190,8 @@ radio_receiver/
 ├── templates/                 # Web UI templates
 ├── static/                    # Web UI static files
 ├── state.json                 # Reservation state file (Web UI)
+├── scripts/                   # Model install/convert helpers (install_models.sh, convert_ja_gguf.sh)
+├── data/models/               # VAD/ASR models (mounted, not baked into the image)
 ├── log/                       # Log output directory
 └── recordings/                # Recording output directory
 ```

@@ -5,7 +5,7 @@ vad:
   # --- silero-vad 検出パラメータ ---
   threshold: 0.4                 # speech と判定する音声確率のしきい値
   min_speech_duration_ms: 250    # これ未満の発話は雑音として破棄
-  min_silence_duration_ms: 100   # この長さ以上の無音で発話を区切る
+  min_silence_duration_ms: 300   # この長さ以上の無音で発話を区切る
   speech_pad_ms: 30              # 検出区間の前後に付与するパディング余白
 
   # --- ASR セグメント化の補助設定 ---

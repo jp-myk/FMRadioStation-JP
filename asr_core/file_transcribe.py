@@ -3,12 +3,12 @@
 silero-vad の ``get_speech_timestamps`` を torch 非依存で再現した
 ``asr_core.vad.get_speech_timestamps`` でファイル全体の発話区間を検出し
 （threshold / min_speech_duration_ms / min_silence_duration_ms / speech_pad_ms /
-max_speech_duration_s は ``config/vad.yaml`` 由来）、各区間を crispasr で認識して
+max_speech_duration_s は ``config/vad.yaml`` 由来）、各区間を parakeet-cli で認識して
 WebVTT のキューとして書き出す。区間の開始・終了サンプルがそのまま再生時刻
 （``audio.currentTime``）にアラインメントできる。
 
 検出パラメータは ``asr_core.config.ASRConfig`` 経由で ``config/vad.yaml`` から読む。
-crispasr の実行は既存の ``ParakeetCppBackend`` を再利用する（バイナリ／モデル／言語の
+parakeet-cli の実行は既存の ``ParakeetCppBackend`` を再利用する（バイナリ／モデル／言語の
 env 解決・1 区間ごとの subprocess 呼び出し）。
 """
 import os
@@ -31,7 +31,7 @@ def _resolve_bin(bin_path: str) -> str | None:
 def asr_batch_available(config: ASRConfig | None = None) -> bool:
     """字幕生成に必要な要素が揃っていれば True。
 
-    crispasr バイナリが解決でき、GGUF モデルが指定され、silero-vad の ONNX モデルが
+    parakeet-cli バイナリが解決でき、GGUF モデルが指定され、silero-vad の ONNX モデルが
     実在することを確認する（VAD は torch 非依存の自前実装＋同梱 onnx を使う）。
     """
     config = config or ASRConfig()

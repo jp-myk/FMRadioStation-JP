@@ -1,6 +1,6 @@
 """file_transcribe（録音ファイル → WebVTT バッチ）の検証。
 
-torch / silero / 実バイナリは不要。発話区間検出（_detect_speech）と crispasr
+torch / silero / 実バイナリは不要。発話区間検出（_detect_speech）と parakeet-cli
 バックエンドをモックし、WebVTT 整形・区間→キュー変換・起動ガードを確認する。
 """
 import os
@@ -50,25 +50,25 @@ def test_transcribe_raises_when_binary_missing():
 
 
 def test_available_requires_bin_model_and_vad_onnx():
-    cfg = ASRConfig(parakeet_bin="crispasr", parakeet_model="m.gguf")
+    cfg = ASRConfig(parakeet_bin="parakeet-cli", parakeet_model="m.gguf")
     # 全部揃う（bin 解決・model 設定・vad onnx 実在）→ True
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/crispasr"), \
+    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"), \
          mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True):
         assert ft.asr_batch_available(cfg) is True
     # バイナリ無し → False
     with mock.patch("asr_core.file_transcribe.shutil.which", return_value=None):
         assert ft.asr_batch_available(cfg) is False
     # モデル未設定 → False
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/crispasr"):
+    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"):
         assert ft.asr_batch_available(ASRConfig(parakeet_model="")) is False
     # vad onnx 不在 → False
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/crispasr"), \
+    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"), \
          mock.patch("asr_core.file_transcribe.os.path.exists", return_value=False):
         assert ft.asr_batch_available(cfg) is False
 
 
 def test_transcribe_wav_to_vtt_end_to_end_mocked():
-    cfg = ASRConfig(parakeet_bin="crispasr", parakeet_model="m.gguf")
+    cfg = ASRConfig(parakeet_bin="parakeet-cli", parakeet_model="m.gguf")
     samples = np.zeros(16000 * 5, dtype=np.int16)  # 5s 相当
     # 公式 get_speech_timestamps が返す形（サンプルインデックス）
     regions = [{"start": 16000, "end": 32000}, {"start": 48000, "end": 64000}]
@@ -76,7 +76,7 @@ def test_transcribe_wav_to_vtt_end_to_end_mocked():
 
     with tempfile.TemporaryDirectory() as d:
         vtt = os.path.join(d, "rec.vtt")
-        with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/crispasr"), \
+        with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"), \
              mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True), \
              mock.patch("asr_core.file_transcribe.read_wav_int16", return_value=(samples, 16000)), \
              mock.patch("asr_core.file_transcribe._detect_speech", return_value=regions), \

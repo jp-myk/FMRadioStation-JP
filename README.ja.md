@@ -86,6 +86,27 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv pip install --system .
 ```
 
+### 音声認識モデル（字幕生成用）
+
+Web UI の自動字幕機能は `data/models/` に置く 2 つのモデルを使います:
+
+- `silero_vad.onnx` — 音声区間検出（ダウンロード）
+- `parakeet-tdt-0.6b-ja.gguf` — parakeet.cpp 用の日本語 ASR（`nvidia/parakeet-tdt_ctc-0.6b-ja` から変換）
+
+次のスクリプトで両方をまとめて用意できます:
+
+```bash
+./scripts/install_models.sh
+```
+
+`silero_vad.onnx` はダウンロードし、parakeet.cpp 形式の日本語 GGUF は公開配布が無いため `nvidia/parakeet-tdt_ctc-0.6b-ja` を `scripts/convert_ja_gguf.sh` で GGUF へ変換します（Python + torch/NeMo を使用、ホスト側で一度だけ）。自前で変換済み GGUF をホストしている場合は `PARAKEET_GGUF_URL` を指定するとダウンロードに切り替わります:
+
+```bash
+PARAKEET_GGUF_URL=https://example.com/parakeet-tdt-0.6b-ja.gguf ./scripts/install_models.sh
+```
+
+両モデルは `./data:/app/data` でコンテナにマウントされます（イメージには焼きません）。保存先は `MODELS_DIR`、個別パスは `SILERO_VAD_ONNX` / `PARAKEET_MODEL` で上書きできます。モデルが無い場合でも録音・再生は継続し、字幕のみ無効化されます。
+
 ---
 
 ## サーバ起動・停止方法
@@ -169,6 +190,8 @@ radio_receiver/
 ├── templates/                 # Web UI テンプレート
 ├── static/                    # Web UI 静的ファイル
 ├── state.json                 # 予約状態ファイル（Web UI）
+├── scripts/                   # モデル取得・変換スクリプト（install_models.sh, convert_ja_gguf.sh）
+├── data/models/               # VAD/ASR モデル（マウント・イメージ非同梱）
 ├── log/                       # ログ保存先
 └── recordings/                # 録音データ保存先
 ```

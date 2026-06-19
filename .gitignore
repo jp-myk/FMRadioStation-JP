@@ -1,3 +1,7 @@
-# ASR model weights (large binaries, fetched separately)
+# ASR/VAD model weights — host-provided, not committed.
+# VAD onnx (silero_vad.onnx) と ASR gguf を data/models に揃えて置く（MODELS_DIR）。
 *.gguf
 data/models/
+
+# GGUF 変換ヘルパ（scripts/convert_ja_gguf.sh）の作業用 clone / venv
+.cache/

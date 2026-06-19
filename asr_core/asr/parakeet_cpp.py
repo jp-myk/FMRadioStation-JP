@@ -5,11 +5,11 @@
 Python 本体に波及しない。ffmpeg を subprocess で扱う既存の
 ``radio_core/transcoder.py`` と同じ流儀。
 
-実ランタイムは ``CrispStrobe/CrispASR`` の ``crispasr`` バイナリを想定:
-    crispasr -m <model.gguf> -f <audio.wav>
-backend 種別（parakeet/tdt）は GGUF メタデータから自動判定されるため、明示の
-デコーダ／言語フラグは不要。GGUF は ``nvidia/parakeet-tdt_ctc-0.6b-ja`` の
-変換済み F16（NeMo とビット一致）を使う前提。
+実ランタイムは ``mudler/parakeet.cpp`` の ``parakeet-cli`` バイナリを想定:
+    parakeet-cli transcribe --model <model.gguf> --input <audio.wav> --decoder tdt --lang ja
+``parakeet-tdt_ctc-0.6b-ja`` は日本語専用・TDT/CTC ハイブリッドモデルのため、
+``--decoder tdt`` で TDT デコーダを明示し、``--lang ja`` で言語を固定する。入力音声は
+16kHz / mono（既存パイプラインと一致）、出力は既定で plain text を stdout へ返す。
 
 CLI フラグや出力フォーマットは ``PARAKEET_CPP_BIN`` のバイナリ実装に依存するため、
 ``_build_command`` / ``_parse_output`` はそこに合わせて調整する。
@@ -43,7 +43,7 @@ class ParakeetCppBackend(ASRBackend):
             print(
                 f"[asr_core] ASR バイナリ '{self._bin}' が見つかりません。"
                 " ASR（字幕生成）を無効化して続行します。"
-                " PARAKEET_CPP_BIN を設定するか CrispASR をビルドしてください。"
+                " PARAKEET_CPP_BIN を設定するか parakeet.cpp をビルドしてください。"
             )
         elif not self._model:
             print(
@@ -66,16 +66,23 @@ class ParakeetCppBackend(ASRBackend):
         return self._resolved_bin is not None and bool(self._model)
 
     def _build_command(self, wav_path: str) -> list[str]:
-        """crispasr 推論コマンドを組み立てる。
+        """parakeet-cli 推論コマンドを組み立てる。
 
-        ``crispasr -m <model.gguf> -f <wav> -l <lang> --backend parakeet``。
-        - ``--backend parakeet``: GGUF からの自動判定に頼らず parakeet backend を明示。
-        - ``-l <lang>``: 言語を固定して LID（whisper-tiny の追加ロード／自動DL）を回避。
-          オフライン Docker でも外部取得が発生しないようにするため重要。
+        ``parakeet-cli transcribe --model <model.gguf> --input <wav> --decoder tdt --lang <lang>``。
+        - ``transcribe``: parakeet-cli の音声→テキスト サブコマンド（必須）。
+        - ``--decoder tdt``: TDT/CTC ハイブリッドモデルの TDT デコーダを明示
+          （言語設定に依らず常に付与）。
+        - ``--lang <lang>``: 言語を固定する（設定されている時のみ付与）。
         """
-        cmd = [self._resolved_bin, "-m", self._model, "-f", wav_path, "--backend", "parakeet"]
+        cmd = [
+            self._resolved_bin,
+            "transcribe",
+            "--model", self._model,
+            "--input", wav_path,
+            "--decoder", "tdt",
+        ]
         if self._language:
-            cmd += ["-l", self._language]
+            cmd += ["--lang", self._language]
         return cmd
 
     @staticmethod
@@ -111,7 +118,7 @@ class ParakeetCppBackend(ASRBackend):
             if proc.returncode != 0:
                 err = proc.stderr.decode("utf-8", "replace").strip()
                 raise RuntimeError(
-                    f"crispasr failed (code {proc.returncode}): {err}"
+                    f"parakeet-cli failed (code {proc.returncode}): {err}"
                 )
             return self._parse_output(proc.stdout.decode("utf-8", "replace"))
         finally:
