@@ -184,6 +184,20 @@ PARAKEET_GGUF_URL=https://example.com/parakeet-tdt-0.6b-ja.gguf ./scripts/instal
 
 両モデルは `./data:/app/data` でコンテナにマウントされます（イメージには焼きません）。保存先は `MODELS_DIR`、個別パスは `SILERO_VAD_ONNX` / `PARAKEET_MODEL` で上書きできます。モデルが無い場合でも録音・再生は継続し、字幕のみ無効化されます。
 
+#### ASR ランタイム CLI（ローカル実行時のみ）
+
+ASR バックエンドはネイティブ CLI バイナリを呼び出します。Docker 実行時はイメージのビルド時に同梱される（`parakeet-cli` と `llama-mtmd-cli`）ため追加作業は不要です。**Docker を使わずローカルで直接動かす場合は、これらを自分でビルドしてください:**
+
+```bash
+# parakeet-cli — parakeet_cpp バックエンド用（既定の日本語 ASR）
+./scripts/install_parakeet_cli.sh
+
+# llama-mtmd-cli — llama_mtmd バックエンド用（Qwen3-ASR など）
+./scripts/install_llama_cli.sh
+```
+
+各スクリプトは `.cache/parakeet.cpp/` / `.cache/llama.cpp/` 配下に clone・ビルドし、生成されたバイナリは Web UI が自動検出します。別の場所のビルドを使う場合は `PARAKEET_CPP_BIN` / `LLAMA_MTMD_BIN` を export してください。ビルドには `git` と `cmake` が必要です（`cmake` が無ければ `uv` 経由で取得します）。Docker 実行時は本手順は不要です。
+
 ---
 
 ## サーバ起動・停止方法
@@ -267,7 +281,7 @@ radio_receiver/
 ├── templates/                 # Web UI テンプレート
 ├── static/                    # Web UI 静的ファイル
 ├── state.json                 # 予約状態ファイル（Web UI）
-├── scripts/                   # モデル取得・変換スクリプト（install_models.sh, convert_ja_gguf.sh）
+├── scripts/                   # モデル取得・変換／CLI ビルドスクリプト（install_models.sh, convert_ja_gguf.sh, install_parakeet_cli.sh, install_llama_cli.sh）
 ├── data/models/               # VAD/ASR モデル（マウント・イメージ非同梱）
 ├── log/                       # ログ保存先
 └── recordings/                # 録音データ保存先

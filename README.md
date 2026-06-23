@@ -184,6 +184,20 @@ PARAKEET_GGUF_URL=https://example.com/parakeet-tdt-0.6b-ja.gguf ./scripts/instal
 
 Both models are mounted into the container via `./data:/app/data` (not baked into the image). Override the directory with `MODELS_DIR`, or individual paths with `SILERO_VAD_ONNX` / `PARAKEET_MODEL`. If the models are absent, recording/playback still works — only subtitles are disabled.
 
+#### ASR runtime CLIs (local runs only)
+
+The ASR backends shell out to native CLI binaries. With Docker these are built by the image (`parakeet-cli` and `llama-mtmd-cli`), so nothing extra is needed. **When running locally without Docker, build them yourself:**
+
+```bash
+# parakeet-cli — for the parakeet_cpp backend (default Japanese ASR)
+./scripts/install_parakeet_cli.sh
+
+# llama-mtmd-cli — for the llama_mtmd backend (Qwen3-ASR, etc.)
+./scripts/install_llama_cli.sh
+```
+
+Each script clones and builds under `.cache/parakeet.cpp/` / `.cache/llama.cpp/`, and the Web UI auto-detects the resulting binaries. To point at a custom build instead, export `PARAKEET_CPP_BIN` / `LLAMA_MTMD_BIN`. The scripts need `git` and `cmake` (a `cmake` wheel is fetched via `uv` if it is missing). These steps are not required for Docker runs.
+
 ---
 
 ## Starting and Stopping
@@ -267,7 +281,7 @@ radio_receiver/
 ├── templates/                 # Web UI templates
 ├── static/                    # Web UI static files
 ├── state.json                 # Reservation state file (Web UI)
-├── scripts/                   # Model install/convert helpers (install_models.sh, convert_ja_gguf.sh)
+├── scripts/                   # Model/CLI install helpers (install_models.sh, convert_ja_gguf.sh, install_parakeet_cli.sh, install_llama_cli.sh)
 ├── data/models/               # VAD/ASR models (mounted, not baked into the image)
 ├── log/                       # Log output directory
 └── recordings/                # Recording output directory

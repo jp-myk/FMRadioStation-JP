@@ -176,6 +176,27 @@ def _default_parakeet_bin() -> str:
     return local_bin if os.path.exists(local_bin) else "parakeet-cli"
 
 
+def _default_llama_bin() -> str:
+    """llama-mtmd-cli の既定値を返す。
+
+    LLAMA_MTMD_BIN があればそれを優先する。未指定時は PATH 上の
+    ``llama-mtmd-cli`` に加えて、このリポジトリのヘルパ
+    ``scripts/install_llama_cli.sh`` が使う ``.cache/llama.cpp`` の
+    ローカルビルド成果物も候補にする。これにより macOS で Docker を使わず
+    WebUI を直接起動した場合でも、
+    ``.cache/llama.cpp/build/bin/llama-mtmd-cli`` があれば
+    Qwen3-ASR 等の llama_mtmd バックエンドを有効化できる。
+    """
+    env = os.environ.get("LLAMA_MTMD_BIN")
+    if env:
+        return env
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    local_bin = os.path.join(
+        repo_root, ".cache", "llama.cpp", "build", "bin", "llama-mtmd-cli"
+    )
+    return local_bin if os.path.exists(local_bin) else "llama-mtmd-cli"
+
+
 @dataclass
 class ASRConfig:
     # --- 音声フォーマット（既存パイプラインに合わせて 16k/mono/int16 固定） ---
@@ -224,9 +245,7 @@ class ASRConfig:
     parakeet_language: str | None = None
 
     # --- llama_mtmd バックエンド（llama.cpp の llama-mtmd-cli・Qwen3-ASR 等） ---
-    llama_bin: str = field(
-        default_factory=lambda: os.environ.get("LLAMA_MTMD_BIN", "llama-mtmd-cli")
-    )
+    llama_bin: str = field(default_factory=_default_llama_bin)
     # 以下 4 つは None のとき asr_model のプロファイルから派生する（None センチネル）。
     qwen_model: str | None = None    # 本体 GGUF パス
     qwen_mmproj: str | None = None   # 音声エンコーダ（mmproj）GGUF パス
