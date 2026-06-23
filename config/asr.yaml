@@ -1,0 +1,37 @@
+# ASR（音声認識）モデルの設定（asr_core が読み込む）
+# model: で使うモデルを選択。models: に各モデルのプロファイルを定義する。
+# 各プロファイルは backend を宣言する（省略時は parakeet_cpp）。GGUF は data/models/ に置く
+# （MODELS_DIR で一括変更、個別パスは env で上書き可）。
+#
+# backend:
+#   parakeet_cpp … mudler/parakeet.cpp の parakeet-cli。filename(gguf)/decoder/language。
+#                  個別パス上書き: PARAKEET_MODEL。
+#   llama_mtmd   … llama.cpp の llama-mtmd-cli（音声マルチモーダル）。filename(本体 gguf)/
+#                  mmproj(音声エンコーダ gguf)/language/prompt。個別パス上書き:
+#                  QWEN_ASR_MODEL / QWEN_ASR_MMPROJ。
+asr:
+  model: Qwen3-ASR-1.7B-Q8_0.gguf  # ↓ models: のキーから選ぶ
+  models:
+    parakeet-tdt-0.6b-ja:          # 日本語専用・TDT/CTC ハイブリッド
+      backend: parakeet_cpp
+      filename: parakeet-tdt-0.6b-ja.gguf
+      decoder: tdt
+      language: ja
+    nemotron-3.5-asr-streaming-0.6b:  # 多言語・RNNT・ストリーミング
+      backend: parakeet_cpp
+      filename: nemotron-3.5-asr-streaming-0.6b.gguf
+      # parakeet-cli の --decoder は ctc|tdt のみ受け付ける（rnnt は無効）。RNN-T モデルは
+      # decoder を空にして --decoder を省略し、デフォルトデコーダに任せる。ランタイムは
+      # arch=rnnt から自動で rnnt_greedy を選ぶ（NeMo の cur_decoder='rnnt' に一致）。
+      decoder: ""
+      # 多言語モデルなので --lang は BCP-47 ロケール（ja ではなく ja-JP、prompt index 10）。
+      # bare 'ja' は "unknown target_lang 'ja'" で弾かれる。
+      language: ja-JP
+    qwen3-asr-1.7b:                # Alibaba Qwen3-ASR（多言語）を llama.cpp で実行
+      # ggml-org/Qwen3-ASR-1.7B-GGUF（Q8_0）。本体 + mmproj(音声エンコーダ) の 2 ファイルが必須。
+      # CPU 動作可だが 0.6B モデルより重い。language は Qwen 流儀の言語名（英語表記。空で auto）。
+      backend: llama_mtmd
+      filename: Qwen3-ASR-1.7B-Q8_0.gguf
+      mmproj: mmproj-Qwen3-ASR-1.7B-Q8_0.gguf
+      language: Japanese
+      prompt: ""

@@ -326,7 +326,12 @@ def index(request: Request):
 
 @app.get("/on-air")
 def on_air(request: Request):
-    return templates.TemplateResponse(request, "on_air.html")
+    # 自動字幕トグルの初期状態をサーバレンダリング（チラつき防止／asr_core 不在時は非表示）。
+    return templates.TemplateResponse(
+        request,
+        "on_air.html",
+        {"asr_enabled": _ASR_ENABLED, "asr_available": _ASR_AVAILABLE},
+    )
 
 
 @app.get("/programs")
@@ -688,6 +693,7 @@ def api_transcript(station_id: str, since: int = 0):
             return {
                 "station_id": station_id,
                 "available": _ASR_ENABLED and _ASR_AVAILABLE,
+                "enabled": _ASR_ENABLED,
                 "active": False,
                 "segments": [],
                 "cursor": 0,
@@ -696,10 +702,42 @@ def api_transcript(station_id: str, since: int = 0):
         return {
             "station_id": station_id,
             "available": _asr_session is not None,
+            "enabled": _ASR_ENABLED,
             "active": True,
             "segments": segments,
             "cursor": len(_asr_transcript),
         }
+
+
+@app.get("/api/asr")
+def api_asr_state():
+    """自動字幕（音声認識）の有効状態を返す。"""
+    return {"enabled": _ASR_ENABLED, "available": _ASR_AVAILABLE}
+
+
+@app.post("/api/asr")
+async def api_asr_set(request: Request):
+    """自動字幕（音声認識）の ON/OFF を実行時に切り替える。
+
+    OFF にしたら再生中セッションを即停止。ON にしたら、再生中なら現用局で即開始する
+    （次の再生時は既存フローで自動起動するため、再生していなければ状態だけ更新）。
+    """
+    global _ASR_ENABLED
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    _ASR_ENABLED = bool(body.get("enabled"))
+    if not _ASR_ENABLED:
+        _stop_asr()
+    elif _ASR_AVAILABLE:
+        # 現用局を優先（単一 SDR なので _active_streamers の先頭）。無ければ要求の station_id。
+        with _stream_lock:
+            active = next(iter(_active_streamers), None)
+        target = active or body.get("station_id")
+        if target:
+            _start_asr(target)
+    return {"enabled": _ASR_ENABLED, "available": _ASR_AVAILABLE}
 
 
 @app.post("/api/stop-stream")

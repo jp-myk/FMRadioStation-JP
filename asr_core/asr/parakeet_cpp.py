@@ -6,10 +6,13 @@ Python 本体に波及しない。ffmpeg を subprocess で扱う既存の
 ``radio_core/transcoder.py`` と同じ流儀。
 
 実ランタイムは ``mudler/parakeet.cpp`` の ``parakeet-cli`` バイナリを想定:
-    parakeet-cli transcribe --model <model.gguf> --input <audio.wav> --decoder tdt --lang ja
-``parakeet-tdt_ctc-0.6b-ja`` は日本語専用・TDT/CTC ハイブリッドモデルのため、
-``--decoder tdt`` で TDT デコーダを明示し、``--lang ja`` で言語を固定する。入力音声は
-16kHz / mono（既存パイプラインと一致）、出力は既定で plain text を stdout へ返す。
+    parakeet-cli transcribe --model <model.gguf> --input <audio.wav> [--decoder <dec>] --lang ja
+デコーダはモデルに応じて切替える（``config/asr.yaml`` の models プロファイル由来）。
+``parakeet-tdt-0.6b-ja`` は TDT/CTC ハイブリッドのため ``--decoder tdt`` を明示する。
+``nemotron-3.5-asr-streaming-0.6b`` は RNN-T だが parakeet-cli の ``--decoder`` は ``ctc|tdt`` しか
+受け付けない（``rnnt`` は無効）ため、**``--decoder`` を省略**してデフォルトデコーダに任せる
+（ランタイムが arch=rnnt から自動で rnnt_greedy を選ぶ）。``--lang ja`` で言語を固定する。
+入力音声は 16kHz / mono（既存パイプラインと一致）、出力は既定で plain text を stdout へ返す。
 
 CLI フラグや出力フォーマットは ``PARAKEET_CPP_BIN`` のバイナリ実装に依存するため、
 ``_build_command`` / ``_parse_output`` はそこに合わせて調整する。
@@ -34,6 +37,7 @@ class ParakeetCppBackend(ASRBackend):
     def __init__(self, config: ASRConfig):
         self._bin = config.parakeet_bin
         self._model = config.parakeet_model
+        self._decoder = config.parakeet_decoder
         self._language = config.parakeet_language
         self._timeout = config.asr_timeout_sec
         # バイナリが未ビルド／未配置のときは、セグメント毎に FileNotFoundError を
@@ -65,13 +69,20 @@ class ParakeetCppBackend(ASRBackend):
     def _enabled(self) -> bool:
         return self._resolved_bin is not None and bool(self._model)
 
+    @property
+    def available(self) -> bool:
+        return self._enabled
+
     def _build_command(self, wav_path: str) -> list[str]:
         """parakeet-cli 推論コマンドを組み立てる。
 
-        ``parakeet-cli transcribe --model <model.gguf> --input <wav> --decoder tdt --lang <lang>``。
+        ``parakeet-cli transcribe --model <model.gguf> --input <wav> [--decoder <dec>] [--lang <lang>]``。
         - ``transcribe``: parakeet-cli の音声→テキスト サブコマンド（必須）。
-        - ``--decoder tdt``: TDT/CTC ハイブリッドモデルの TDT デコーダを明示
-          （言語設定に依らず常に付与）。
+        - ``--decoder <dec>``: 値があるときのみ付与。parakeet-cli が受け付けるのは ``ctc|tdt`` のみで、
+          parakeet-tdt は ``tdt``（TDT/CTC ハイブリッド）を明示する。nemotron などの RNN-T モデルは
+          decoder を空にして **省略**し、デフォルトデコーダに任せる（ランタイムが arch=rnnt から
+          自動で rnnt_greedy を選ぶ。``--decoder rnnt`` は無効値で弾かれる）。
+          値は ``config/asr.yaml`` のモデルプロファイル（``ASRConfig.parakeet_decoder``）由来。
         - ``--lang <lang>``: 言語を固定する（設定されている時のみ付与）。
         """
         cmd = [
@@ -79,8 +90,9 @@ class ParakeetCppBackend(ASRBackend):
             "transcribe",
             "--model", self._model,
             "--input", wav_path,
-            "--decoder", "tdt",
         ]
+        if self._decoder:
+            cmd += ["--decoder", self._decoder]
         if self._language:
             cmd += ["--lang", self._language]
         return cmd
