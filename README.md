@@ -169,7 +169,7 @@ The Web UI's auto-subtitle feature uses models placed under `data/models/`:
 
 - `silero_vad.onnx` — voice activity detection (downloaded)
 - `parakeet-tdt-0.6b-ja.gguf` — Japanese ASR for parakeet.cpp (converted from `nvidia/parakeet-tdt_ctc-0.6b-ja`)
-- `nemotron-3.5-asr-streaming-0.6b.gguf` — multilingual RNNT streaming ASR for parakeet.cpp (converted from `nvidia/nemotron-3.5-asr-streaming-0.6b`); this is the **default** model in `config/asr.yaml`
+- `nemotron-3.5-asr-streaming-0.6b.gguf` — multilingual RNNT streaming ASR for parakeet.cpp (downloaded prebuilt from `mudler/parakeet-cpp-gguf`); this is the **default** model in `config/asr.yaml`
 
 Install them with one script:
 
@@ -177,14 +177,14 @@ Install them with one script:
 ./scripts/install_models.sh
 ```
 
-This downloads `silero_vad.onnx` and—because no parakeet.cpp-format GGUFs are published—converts both `nvidia/parakeet-tdt_ctc-0.6b-ja` and `nvidia/nemotron-3.5-asr-streaming-0.6b` to GGUF via `scripts/convert_ja_gguf.sh` (needs Python + torch/NeMo; runs once on the host; both conversions share the same venv). It also downloads the Qwen3-ASR GGUFs.
+This downloads `silero_vad.onnx`; converts `nvidia/parakeet-tdt_ctc-0.6b-ja` to GGUF via `scripts/convert_ja_gguf.sh` (needs Python + torch/NeMo; runs once on the host); downloads the prebuilt nemotron GGUF; and downloads the Qwen3-ASR GGUFs. The nemotron checkpoint is **not** converted locally — its prompt-conditioned RNNT reference class is unreleased in PyPI NeMo, so the already-converted parakeet.cpp-format GGUF from `mudler/parakeet-cpp-gguf` is downloaded instead.
 
-Skip any of them with `INSTALL_PARAKEET_JA=0`, `INSTALL_NEMOTRON=0`, or `INSTALL_QWEN_ASR=0`. If you host your own converted GGUFs, set `PARAKEET_GGUF_URL` / `NEMOTRON_GGUF_URL` to download them instead of converting:
+Skip any of them with `INSTALL_PARAKEET_JA=0`, `INSTALL_NEMOTRON=0`, or `INSTALL_QWEN_ASR=0`. For parakeet-ja, set `PARAKEET_GGUF_URL` to download a prebuilt GGUF instead of converting. For nemotron, pick a quantized variant with `NEMOTRON_GGUF_FILE` (e.g. `nemotron-3.5-asr-streaming-0.6b-q8_0.gguf`) or override the source entirely with `NEMOTRON_GGUF_URL`:
 
 ```bash
-# Only the default (nemotron) model, downloaded from your own host
+# Only the default (nemotron) model, smaller q8_0 quant
 INSTALL_PARAKEET_JA=0 INSTALL_QWEN_ASR=0 \
-  NEMOTRON_GGUF_URL=https://example.com/nemotron-3.5-asr-streaming-0.6b.gguf \
+  NEMOTRON_GGUF_FILE=nemotron-3.5-asr-streaming-0.6b-q8_0.gguf \
   ./scripts/install_models.sh
 ```
 

@@ -169,7 +169,7 @@ Web UI の自動字幕機能は `data/models/` に置くモデルを使います
 
 - `silero_vad.onnx` — 音声区間検出（ダウンロード）
 - `parakeet-tdt-0.6b-ja.gguf` — parakeet.cpp 用の日本語 ASR（`nvidia/parakeet-tdt_ctc-0.6b-ja` から変換）
-- `nemotron-3.5-asr-streaming-0.6b.gguf` — parakeet.cpp 用の多言語 RNNT ストリーミング ASR（`nvidia/nemotron-3.5-asr-streaming-0.6b` から変換）。`config/asr.yaml` の**既定モデル**
+- `nemotron-3.5-asr-streaming-0.6b.gguf` — parakeet.cpp 用の多言語 RNNT ストリーミング ASR（`mudler/parakeet-cpp-gguf` から変換済みをダウンロード）。`config/asr.yaml` の**既定モデル**
 
 次のスクリプトでまとめて用意できます:
 
@@ -177,14 +177,14 @@ Web UI の自動字幕機能は `data/models/` に置くモデルを使います
 ./scripts/install_models.sh
 ```
 
-`silero_vad.onnx` はダウンロードし、parakeet.cpp 形式の GGUF は公開配布が無いため `nvidia/parakeet-tdt_ctc-0.6b-ja` と `nvidia/nemotron-3.5-asr-streaming-0.6b` の両方を `scripts/convert_ja_gguf.sh` で GGUF へ変換します（Python + torch/NeMo を使用、ホスト側で一度だけ。2 つの変換は同じ venv を共有）。Qwen3-ASR 用の本体 GGUF と mmproj も既定でダウンロードします。
+`silero_vad.onnx` はダウンロードし、`nvidia/parakeet-tdt_ctc-0.6b-ja` は `scripts/convert_ja_gguf.sh` で GGUF へ変換します（Python + torch/NeMo を使用、ホスト側で一度だけ）。nemotron は変換済み GGUF をダウンロードし、Qwen3-ASR の本体 GGUF と mmproj も既定でダウンロードします。nemotron は**ローカル変換しません** — プロンプト条件付き RNN-T の参照クラスが公開 NeMo(PyPI) に無いため、parakeet.cpp が変換・公開した `mudler/parakeet-cpp-gguf` の GGUF を取得します。
 
-それぞれ `INSTALL_PARAKEET_JA=0` / `INSTALL_NEMOTRON=0` / `INSTALL_QWEN_ASR=0` で個別にスキップできます。自前で変換済み GGUF をホストしている場合は `PARAKEET_GGUF_URL` / `NEMOTRON_GGUF_URL` を指定すると変換せずダウンロードに切り替わります:
+それぞれ `INSTALL_PARAKEET_JA=0` / `INSTALL_NEMOTRON=0` / `INSTALL_QWEN_ASR=0` で個別にスキップできます。parakeet-ja は `PARAKEET_GGUF_URL` を指定すると変換せず DL に切り替わります。nemotron は `NEMOTRON_GGUF_FILE` で量子化版（例 `nemotron-3.5-asr-streaming-0.6b-q8_0.gguf`）を選べ、`NEMOTRON_GGUF_URL` で取得元を完全に上書きできます:
 
 ```bash
-# 既定（nemotron）モデルだけを自前ホストからダウンロード
+# 既定（nemotron）モデルだけを小さい q8_0 量子化版で取得
 INSTALL_PARAKEET_JA=0 INSTALL_QWEN_ASR=0 \
-  NEMOTRON_GGUF_URL=https://example.com/nemotron-3.5-asr-streaming-0.6b.gguf \
+  NEMOTRON_GGUF_FILE=nemotron-3.5-asr-streaming-0.6b-q8_0.gguf \
   ./scripts/install_models.sh
 ```
 

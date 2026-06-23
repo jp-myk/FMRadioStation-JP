@@ -2,8 +2,11 @@
 # NeMo の parakeet / nemotron 系モデルを parakeet.cpp 互換 GGUF へ変換し、
 # data/models/<GGUF_OUT_NAME> に出力するワンショット変換ヘルパ。
 # 既定は nvidia/parakeet-tdt_ctc-0.6b-ja → parakeet-tdt-0.6b-ja.gguf。
-# MODEL_ID と GGUF_OUT_NAME を上書きすれば他モデル（例: nemotron-3.5-asr-streaming-0.6b）
-# にも使える。install_models.sh が両モデルの変換にこのスクリプトを再利用する。
+# MODEL_ID と GGUF_OUT_NAME を上書きすれば他の変換可能モデルにも使える。
+# 注意: nemotron-3.5-asr-streaming-0.6b 等プロンプト条件付き RNN-T は参照クラス
+# (rnnt_bpe_models_prompt) が公開 NeMo(PyPI) に無く、この既定 venv では変換できない
+# （NeMo を git main から入れる必要がある）。install_models.sh は nemotron を変換せず
+# 公開済み GGUF をダウンロードする。
 #
 # なぜ必要か:
 #   CrispASR 用の GGUF（cstr/parakeet-tdt-0.6b-ja-GGUF）は metadata schema が
