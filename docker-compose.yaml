@@ -44,5 +44,7 @@ services:
     devices:
       - /dev/bus/usb:/dev/bus/usb
     ports:
-      - "5000:5000"
+      # macOS の Control Center/AirPlay Receiver が 5000 番を使うことがあるため、
+      # ホスト側は 5001 番に公開する（コンテナ内の Uvicorn は 5000 番）。
+      - "5001:5000"
     restart: unless-stopped

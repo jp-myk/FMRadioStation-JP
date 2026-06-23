@@ -63,6 +63,8 @@ _DEFAULT_ASR_CONFIG = os.path.join(
 #   ggml-org/Qwen3-ASR-1.7B-GGUF(Q8_0) で CPU 実行する。
 _ASR_DEFAULTS = {
     "model": "parakeet-tdt-0.6b-ja",
+    "live_fallback_segment_sec": 10.0,
+    "live_fallback_min_rms": 300.0,
     "models": {
         "parakeet-tdt-0.6b-ja": {
             "backend": "parakeet_cpp",
@@ -107,6 +109,9 @@ def _load_asr_config() -> dict:
         section = data.get("asr") or {}
         if section.get("model"):
             cfg["model"] = section["model"]
+        for key in ["live_fallback_segment_sec", "live_fallback_min_rms"]:
+            if key in section:
+                cfg[key] = section[key]
         for name, profile in (section.get("models") or {}).items():
             cfg["models"][name] = {**cfg["models"].get(name, {}), **(profile or {})}
     except (OSError, yaml.YAMLError):
@@ -152,6 +157,25 @@ def _resolve_model_path(filename: str, env_var: str = "PARAKEET_MODEL") -> str:
     return path if os.path.exists(path) else ""
 
 
+def _default_parakeet_bin() -> str:
+    """parakeet-cli の既定値を返す。
+
+    PARAKEET_CPP_BIN があればそれを優先する。未指定時は PATH 上の
+    ``parakeet-cli`` に加えて、このリポジトリのヘルパが使う
+    ``.cache/parakeet.cpp`` のローカルビルド成果物も候補にする。
+    これにより macOS で Docker を使わず WebUI を直接起動した場合でも、
+    ``.cache/parakeet.cpp/build/examples/cli/parakeet-cli`` があれば ASR を有効化できる。
+    """
+    env = os.environ.get("PARAKEET_CPP_BIN")
+    if env:
+        return env
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    local_bin = os.path.join(
+        repo_root, ".cache", "parakeet.cpp", "build", "examples", "cli", "parakeet-cli"
+    )
+    return local_bin if os.path.exists(local_bin) else "parakeet-cli"
+
+
 @dataclass
 class ASRConfig:
     # --- 音声フォーマット（既存パイプラインに合わせて 16k/mono/int16 固定） ---
@@ -174,6 +198,15 @@ class ASRConfig:
     # speech_pad_ms: 検出区間の前後に付与するパディング余白
     speech_pad_ms: int = field(default_factory=lambda: int(_VAD["speech_pad_ms"]))
     context_sec: float = field(default_factory=lambda: float(_VAD["context_sec"]))
+    # ライブ配信向けフォールバック: broadcast 音声では silero-vad が発話を検出できず
+    # 「認識待機中」のままになることがあるため、一定以上の音量がある区間は固定長で
+    # ASR に渡す。通常の VAD セグメントが確定した場合は重複を避けるため破棄される。
+    live_fallback_segment_sec: float = field(
+        default_factory=lambda: float(_ASR["live_fallback_segment_sec"])
+    )
+    live_fallback_min_rms: float = field(
+        default_factory=lambda: float(_ASR["live_fallback_min_rms"])
+    )
 
     # --- ASR バックエンド ---
     # 使用モデル（config/asr.yaml の models キー）。これに応じて backend と各パラメータを
@@ -183,9 +216,7 @@ class ASRConfig:
     backend: str | None = None
 
     # --- parakeet_cpp バックエンド（parakeet-cli） ---
-    parakeet_bin: str = field(
-        default_factory=lambda: os.environ.get("PARAKEET_CPP_BIN", "parakeet-cli")
-    )
+    parakeet_bin: str = field(default_factory=_default_parakeet_bin)
     # 以下 3 つは None のとき asr_model のプロファイルから派生する（None センチネル）。
     # 明示指定（テストの parakeet_model="m.gguf"、language="" で --lang 省略 など）は尊重する。
     parakeet_model: str | None = None
@@ -201,7 +232,6 @@ class ASRConfig:
     qwen_mmproj: str | None = None   # 音声エンコーダ（mmproj）GGUF パス
     qwen_language: str | None = None  # Qwen 流儀の言語名（英語表記。空で auto）
     qwen_prompt: str | None = None    # ASR 用プロンプト（既定空）
-
     asr_timeout_sec: float = 120.0  # 1 セグメント推論のタイムアウト
 
     # --- VAD モデル ---

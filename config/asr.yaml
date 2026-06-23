@@ -11,6 +11,10 @@
 #                  QWEN_ASR_MODEL / QWEN_ASR_MMPROJ。
 asr:
   model: parakeet-tdt-0.6b-ja  # ↓ models: のキーから選ぶ
+  # ライブ配信向けフォールバック。silero-vad が放送音声を発話判定できず
+  # 「認識待機中」のままになる場合、十分な音量がある区間を固定長で ASR に渡す。
+  live_fallback_segment_sec: 10.0
+  live_fallback_min_rms: 300.0
   models:
     parakeet-tdt-0.6b-ja:          # 日本語専用・TDT/CTC ハイブリッド
       backend: parakeet_cpp

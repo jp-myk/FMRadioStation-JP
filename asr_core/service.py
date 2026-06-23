@@ -52,6 +52,11 @@ class StreamingASRService:
         self._consumer: asyncio.Task | None = None
         self._asr_tasks: set[asyncio.Task] = set()
         self._leftover = np.empty(0, dtype=np.int16)
+        self._fallback_buf: list[np.ndarray] = []
+        self._fallback_len = 0
+        self._fallback_start_sample = 0
+        self._samples_seen = 0
+        self._next_result_id = 0
         self._started = False
 
     # ------------------------------------------------------------------ 起動/停止
@@ -134,11 +139,55 @@ class StreamingASRService:
                 self._process_frame(frame)
 
     def _process_frame(self, frame: np.ndarray) -> None:
+        frame = np.ascontiguousarray(frame, dtype=np.int16)
+        self._append_fallback_frame(frame)
         prob = self._vad.probability(frame)
-        for seg in self._segmenter.process_frame(frame, prob):
+        finalized = self._segmenter.process_frame(frame, prob)
+        if finalized:
+            # VAD が正規の発話区間を切れた場合は、その範囲を優先し、固定長
+            # フォールバック側の蓄積を捨てて二重認識を避ける。
+            self._reset_fallback_buffer()
+        for seg in finalized:
             self._dispatch(seg)
+        if not finalized:
+            self._maybe_dispatch_fallback()
+        self._samples_seen += frame.shape[0]
+
+    def _append_fallback_frame(self, frame: np.ndarray) -> None:
+        if self._fallback_len == 0:
+            self._fallback_start_sample = self._samples_seen
+        self._fallback_buf.append(frame)
+        self._fallback_len += frame.shape[0]
+
+    def _reset_fallback_buffer(self) -> None:
+        self._fallback_buf = []
+        self._fallback_len = 0
+        self._fallback_start_sample = self._samples_seen
+
+    def _maybe_dispatch_fallback(self) -> None:
+        target_samples = int(self._cfg.live_fallback_segment_sec * self._cfg.sample_rate)
+        if target_samples <= 0 or self._fallback_len < target_samples:
+            return
+        start = self._fallback_start_sample
+        samples = np.concatenate(self._fallback_buf) if self._fallback_buf else np.empty(0, dtype=np.int16)
+        self._reset_fallback_buffer()
+        if samples.shape[0] == 0:
+            return
+        rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+        if rms < self._cfg.live_fallback_min_rms:
+            return
+        self._dispatch(
+            SpeechSegment(
+                segment_id=-1,
+                samples=samples,
+                t_start=start / self._cfg.sample_rate,
+                t_end=(start + samples.shape[0]) / self._cfg.sample_rate,
+            )
+        )
 
     def _dispatch(self, seg: SpeechSegment) -> None:
+        seg.segment_id = self._next_result_id
+        self._next_result_id += 1
         task = asyncio.create_task(self._run_asr(seg))
         self._asr_tasks.add(task)
         task.add_done_callback(self._asr_tasks.discard)

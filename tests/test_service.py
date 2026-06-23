@@ -81,3 +81,37 @@ def test_no_speech_produces_no_result():
         return await svc.get_results()
 
     assert asyncio.run(run()) == []
+
+
+def test_energetic_audio_falls_back_to_fixed_segment_when_vad_misses_speech():
+    class NoSpeechVad:
+        def probability(self, frame: np.ndarray) -> float:
+            return 0.0
+
+    async def run():
+        cfg = ASRConfig(
+            live_fallback_segment_sec=1.0,
+            live_fallback_min_rms=300.0,
+        )
+        backend = FakeBackend()
+        svc = StreamingASRService(cfg, vad=NoSpeechVad(), backend=backend)
+        await svc.start()
+
+        # silero-vad が broadcast 音声を speech と判定できない場合でも、
+        # 十分な音量があるライブ音声は固定長フォールバックで ASR に流す。
+        await svc.push_audio(_pcm(5000, 16384))
+
+        results = []
+        for _ in range(50):
+            results = await svc.get_results()
+            if results:
+                break
+            await asyncio.sleep(0.02)
+        await svc.aclose()
+        return results
+
+    results = asyncio.run(run())
+    assert len(results) == 1
+    assert results[0].segment_id == 0
+    assert results[0].text == "text1"
+    assert results[0].t_end > results[0].t_start

@@ -4,10 +4,12 @@ import gc
 import json
 import datetime
 import threading
+import subprocess
 import struct
 import io
 import fcntl
 import time
+import socket
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse, FileResponse
@@ -228,6 +230,39 @@ def make_infinite_wav_header(sample_rate: int = 16000, channels: int = 1, bits: 
     buf.write(b'data')
     buf.write(struct.pack('<I', data_size))
     return buf.getvalue()
+
+
+def _needs_mp3(request: Request) -> bool:
+    """SafariはWAVストリーミング非対応のためMP3トランスコードを使用"""
+    ua = request.headers.get("user-agent", "").lower()
+    return "safari" in ua and "chrome" not in ua and "chromium" not in ua and "firefox" not in ua
+
+
+def _cleanup_stream(station_id: str, recv_ref: list, fifo_path: str):
+    """ストリーム終了時の共通リソース解放"""
+    _stop_asr()
+    with _stream_lock:
+        entry = _active_streamers.pop(station_id, None)
+    r = recv_ref[0]
+    recv_ref[0] = None
+    if entry is not None:
+        if r:
+            try:
+                r.stop()
+                r.wait()
+            except Exception:
+                pass
+        del r
+        try:
+            _sdr_lock.release()
+        except RuntimeError:
+            pass
+    else:
+        del r
+    try:
+        os.unlink(fifo_path)
+    except Exception:
+        pass
 
 
 # ------------------------------
@@ -773,9 +808,76 @@ def api_stop_stream():
     return {"stopped": True}
 
 
-def stream_from_recording(wav_path: str, station_id: str):
-    """録音中のWAVファイルを先頭から読んでタイムシフトストリーミング配信（MP3）"""
-    _start_asr(station_id)
+def stream_from_recording(
+    wav_path: str,
+    station_id: str,
+    use_mp3: bool = False,
+    enable_asr: bool = True,
+):
+    """録音中のWAVファイルを先頭から読んでタイムシフトストリーミング配信する。"""
+    WAV_HEADER_SIZE = 44
+    if enable_asr:
+        _start_asr(station_id)
+
+    if use_mp3:
+        def generate():
+            ffmpeg_proc = None
+            try:
+                ffmpeg_proc = subprocess.Popen(
+                    [
+                        "ffmpeg", "-y", "-loglevel", "quiet",
+                        "-f", "s16le", "-ar", "16000", "-ac", "1",
+                        "-i", "pipe:0", "-f", "mp3", "-q:a", "5", "pipe:1",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+
+                def forward_pcm():
+                    try:
+                        with open(wav_path, "rb") as f:
+                            f.seek(WAV_HEADER_SIZE)
+                            while True:
+                                chunk = f.read(4096)
+                                if chunk:
+                                    if enable_asr:
+                                        _on_pcm(chunk)
+                                    ffmpeg_proc.stdin.write(chunk)
+                                elif any(r["output"] == wav_path for r in IN_PROGRESS_RECORDINGS):
+                                    time.sleep(0.05)
+                                else:
+                                    break
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            ffmpeg_proc.stdin.close()
+                        except Exception:
+                            pass
+
+                threading.Thread(target=forward_pcm, daemon=True).start()
+
+                while True:
+                    chunk = ffmpeg_proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if ffmpeg_proc:
+                    try:
+                        ffmpeg_proc.terminate()
+                        ffmpeg_proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                if enable_asr:
+                    _stop_asr()
+
+        return StreamingResponse(
+            generate(),
+            media_type="audio/mpeg",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
 
     def generate():
         try:
@@ -784,10 +886,11 @@ def stream_from_recording(wav_path: str, station_id: str):
                 is_still_recording=lambda: any(
                     r["output"] == wav_path for r in IN_PROGRESS_RECORDINGS
                 ),
-                on_pcm=_on_pcm,
+                on_pcm=_on_pcm if enable_asr else None,
             )
         finally:
-            _stop_asr()
+            if enable_asr:
+                _stop_asr()
 
     return StreamingResponse(
         generate(),
@@ -797,14 +900,18 @@ def stream_from_recording(wav_path: str, station_id: str):
 
 
 @app.get("/stream/{station_id}")
-def stream_audio(station_id: str):
+def stream_audio(station_id: str, request: Request, asr: int = 1):
     station = get_station(station_id)
     if station is None:
         return JSONResponse(content={"error": "局が見つかりません"}, status_code=404)
+    use_mp3 = _needs_mp3(request)
+    enable_asr = asr != 0
 
     in_progress = next((r for r in IN_PROGRESS_RECORDINGS if r["station_id"] == station_id), None)
     if in_progress:
-        return stream_from_recording(in_progress["output"], station_id)
+        return stream_from_recording(
+            in_progress["output"], station_id, use_mp3=use_mp3, enable_asr=enable_asr
+        )
 
     if IN_PROGRESS_RECORDINGS:
         return JSONResponse(content={"error": "他の局を録音中のため配信できません"}, status_code=409)
@@ -842,45 +949,75 @@ def stream_audio(station_id: str):
             _active_streamers[station_id] = (recv_ref, fifo_path)
 
         recv_ref[0].start()
-        _start_asr(station_id)
+        if enable_asr:
+            _start_asr(station_id)
 
     except Exception:
         _sdr_lock.release()
         raise
 
-    def generate():
-        try:
-            yield from stream_fd_as_mp3(rfd, on_pcm=_on_pcm)
-        finally:
-            _stop_asr()
-            with _stream_lock:
-                entry = _active_streamers.pop(station_id, None)
+    if use_mp3:
+        def generate():
+            ffmpeg_proc = None
+            try:
+                ffmpeg_proc = subprocess.Popen(
+                    [
+                        "ffmpeg", "-y", "-loglevel", "quiet",
+                        "-f", "s16le", "-ar", "16000", "-ac", "1",
+                        "-i", "pipe:0", "-f", "mp3", "-q:a", "5", "pipe:1",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
 
-            # 必ず参照を None に落として USB 解放を確実にする
-            r = recv_ref[0]
-            recv_ref[0] = None
-
-            if entry is not None:
-                # api_stop_stream() がまだ呼ばれていない（タブ閉じ等）
-                # → 自分で停止・USB 解放・ロック解放
-                if r:
+                def forward_pcm():
                     try:
-                        r.stop()
-                        r.wait()
+                        # GNU Radio 起動待ちの間、2秒分の無音PCMを先行送信
+                        ffmpeg_proc.stdin.write(bytes(16000 * 2 * 2))
+                        with os.fdopen(rfd, "rb") as f:
+                            while True:
+                                chunk = f.read(4096)
+                                if not chunk:
+                                    break
+                                if enable_asr:
+                                    _on_pcm(chunk)
+                                ffmpeg_proc.stdin.write(chunk)
                     except Exception:
                         pass
-                del r  # 参照カウント → 0、デストラクタ実行、USB 解放
-                try:
-                    _sdr_lock.release()
-                except RuntimeError:
-                    pass
-            else:
-                # api_stop_stream() が先に停止・USB 解放・ロック解放済み
-                del r
-            try:
-                os.unlink(fifo_path)
-            except Exception:
-                pass
+                    finally:
+                        try:
+                            ffmpeg_proc.stdin.close()
+                        except Exception:
+                            pass
+
+                threading.Thread(target=forward_pcm, daemon=True).start()
+
+                while True:
+                    chunk = ffmpeg_proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                if ffmpeg_proc:
+                    try:
+                        ffmpeg_proc.terminate()
+                        ffmpeg_proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                _cleanup_stream(station_id, recv_ref, fifo_path)
+
+        return StreamingResponse(
+            generate(),
+            media_type="audio/mpeg",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        )
+
+    def generate():
+        try:
+            yield from stream_fd_as_mp3(rfd, on_pcm=_on_pcm if enable_asr else None)
+        finally:
+            _cleanup_stream(station_id, recv_ref, fifo_path)
 
     return StreamingResponse(
         generate(),
@@ -916,6 +1053,24 @@ def reschedule_pending():
 
 
 # ------------------------------
+def _select_webui_port(default_port: int = 5000) -> int:
+    env_port = os.environ.get("WEBUI_PORT") or os.environ.get("PORT")
+    if env_port:
+        return int(env_port)
+    for port in range(default_port, default_port + 11):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("0.0.0.0", port))
+            except OSError:
+                continue
+            if port != default_port:
+                print(f"port {default_port} is in use; using {port} instead")
+            return port
+    return default_port
+
+
+# ------------------------------
 if __name__ == "__main__":
     reschedule_pending()
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    uvicorn.run(app, host="0.0.0.0", port=_select_webui_port())

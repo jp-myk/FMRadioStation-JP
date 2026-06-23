@@ -8,6 +8,7 @@ from unittest import mock
 
 import numpy as np
 
+import asr_core.config as config_module
 from asr_core.asr.parakeet_cpp import ParakeetCppBackend
 from asr_core.config import ASRConfig
 
@@ -42,6 +43,25 @@ def test_command_uses_transcribe_model_input_decoder_and_language():
     # TDT デコーダを明示し、--lang で言語を固定する。
     assert "--decoder" in cmd and cmd[cmd.index("--decoder") + 1] == "tdt"
     assert "--lang" in cmd and cmd[cmd.index("--lang") + 1] == "ja"
+
+
+def test_default_bin_uses_repo_local_build_when_present():
+    """macOS ローカル実行向けに .cache の parakeet-cli を既定で拾う。"""
+    expected = config_module.os.path.abspath(
+        config_module.os.path.join(
+            config_module.os.path.dirname(config_module.__file__),
+            "..",
+            ".cache",
+            "parakeet.cpp",
+            "build",
+            "examples",
+            "cli",
+            "parakeet-cli",
+        )
+    )
+    with mock.patch.dict(config_module.os.environ, {}, clear=True), \
+            mock.patch("asr_core.config.os.path.exists", return_value=True):
+        assert ASRConfig().parakeet_bin == expected
 
 
 def test_command_omits_language_when_unset_but_keeps_decoder():

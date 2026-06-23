@@ -4,14 +4,15 @@
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4 class="mb-0"><i class="bi bi-broadcast me-2"></i>放映中</h4>
-  <div class="d-flex align-items-center gap-2">
+  <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
     {% if asr_available %}
-    <button class="btn btn-sm asr-toggle {{ 'asr-on' if asr_enabled else 'btn-outline-secondary' }}"
-            id="asrToggleBtn" aria-pressed="{{ 'true' if asr_enabled else 'false' }}"
-            title="自動字幕（音声認識）の ON/OFF" onclick="toggleAsr()">
-      <i class="bi {{ 'bi-badge-cc-fill' if asr_enabled else 'bi-badge-cc' }}" id="asrToggleIcon"></i>
-      <span id="asrToggleLabel" class="d-none d-sm-inline ms-1">字幕 {{ 'ON' if asr_enabled else 'OFF' }}</span>
-    </button>
+    <div class="form-check form-switch mb-0 small text-secondary" title="自動字幕（音声認識）の ON/OFF">
+      <input class="form-check-input" type="checkbox" role="switch" id="asrToggle"
+             {% if asr_enabled %}checked{% endif %} onchange="toggleAsr(this.checked)">
+      <label class="form-check-label" for="asrToggle">
+        自動字幕 <span id="asrToggleLabel">{{ 'ON' if asr_enabled else 'OFF' }}</span>
+      </label>
+    </div>
     {% endif %}
     <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir()">
       <i class="bi bi-arrow-clockwise me-1"></i>更新
@@ -64,6 +65,7 @@
 
 {% block scripts %}
 <script>
+window.ASR_LIVE_AVAILABLE = {{ 'true' if asr_available else 'false' }};
 let _streamRequestId = 0;   // 各 playStream 呼び出しに一意なID
 let _activeStationId = null; // 現在アクティブなステーション（接続中含む）
 let _lastStation = null;     // 最後に再生したステーション情報（再起動用）
@@ -73,15 +75,12 @@ let _asrCursor = 0;          // 取得済みセグメント数
 let _asrEnabled = {{ 'true' if asr_enabled else 'false' }};  // 自動字幕 ON/OFF（サーバ初期値）
 
 function renderAsrToggle() {
-  const btn = document.getElementById('asrToggleBtn');
-  if (!btn) return;
-  const icon  = document.getElementById('asrToggleIcon');
+  const toggle = document.getElementById('asrToggle');
   const label = document.getElementById('asrToggleLabel');
-  btn.classList.toggle('asr-on', _asrEnabled);
-  btn.classList.toggle('btn-outline-secondary', !_asrEnabled);
-  btn.setAttribute('aria-pressed', _asrEnabled ? 'true' : 'false');
-  icon.className = 'bi ' + (_asrEnabled ? 'bi-badge-cc-fill' : 'bi-badge-cc');
-  label.textContent = '字幕 ' + (_asrEnabled ? 'ON' : 'OFF');
+  if (!toggle || !label) return;
+  toggle.checked = _asrEnabled;
+  label.textContent = _asrEnabled ? 'ON' : 'OFF';
+  label.className = _asrEnabled ? 'text-info' : 'text-secondary';
 }
 
 function showAsrOff() {
@@ -92,10 +91,10 @@ function showAsrOff() {
   }
 }
 
-function toggleAsr() {
-  const btn = document.getElementById('asrToggleBtn');
-  const next = !_asrEnabled;
-  if (btn) btn.disabled = true;
+function toggleAsr(enabled) {
+  const toggle = document.getElementById('asrToggle');
+  const next = typeof enabled === 'boolean' ? enabled : !_asrEnabled;
+  if (toggle) toggle.disabled = true;
   fetch('/api/asr', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -111,8 +110,8 @@ function toggleAsr() {
         else { stopTranscript(); showAsrOff(); }
       }
     })
-    .catch(() => {})
-    .finally(() => { if (btn) btn.disabled = false; });
+    .catch(() => { renderAsrToggle(); })
+    .finally(() => { if (toggle) toggle.disabled = false; });
 }
 
 function syncAsrState() {
@@ -124,6 +123,7 @@ function syncAsrState() {
 }
 
 function startTranscript(stationId) {
+  if (!_asrEnabled || !window.ASR_LIVE_AVAILABLE) return;
   // 同じ局で既にポーリング中なら何もしない
   if (_transcriptTimer && _transcriptStation === stationId) return;
   stopTranscript();
@@ -312,7 +312,7 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
     bar.classList.remove('bar-connecting');
     errMsg.className = 'd-none';
     resetBtn();
-    startTranscript(stationId);
+    if (_asrEnabled) startTranscript(stationId);
   }
 
   // バーを「接続中」で即表示
@@ -372,15 +372,16 @@ function playStream(stationId, stationName, title, isRecording, btnEl) {
           if (myRequestId !== _streamRequestId) return;
           spinner.classList.remove('d-none');
           statusText.textContent = '接続が遅延しています...';
-          // SDR ロックを即座に解放し、他局への切り替えを妨げないようにする
-          _activeStationId = null;
-          fetch('/api/stop-stream', { method: 'POST' }).catch(() => {});
+          // macOS/Safari/Chrome ではライブストリーム中の一時的なバッファ不足でも
+          // stalled が発火する。ここで停止APIを呼ぶと、正常に復帰できる短い遅延でも
+          // サーバ側の SDR/FIFO/ffmpeg を自分で止めてしまい、5〜10秒で再生が切れる。
+          // stalled は致命的エラー扱いせず、状態表示だけに留める。
         };
 
         audio.oncanplay = function () { onConnected(); };
         audio.onplaying = function () { onConnected(); };
 
-        audio.src = '/stream/' + stationId;
+        audio.src = '/stream/' + stationId + '?asr=' + (_asrEnabled ? '1' : '0');
         const playPromise = audio.play();
         if (playPromise !== undefined) {
           playPromise.catch(err => {

@@ -145,9 +145,10 @@ cd llama.cpp && cmake -B build -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
 #   → build/bin/llama-mtmd-cli
 
 # 2) GGUF（Q8_0 本体 + mmproj 音声エンコーダ, 計 ~2.3GB）を data/models/ に取得
-INSTALL_QWEN_ASR=1 ./scripts/install_models.sh
+./scripts/install_models.sh
 #   → data/models/Qwen3-ASR-1.7B-Q8_0.gguf
 #   → data/models/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf
+# Qwen3-ASR が不要な場合だけ INSTALL_QWEN_ASR=0 ./scripts/install_models.sh
 
 export LLAMA_MTMD_BIN=/path/to/llama.cpp/build/bin/llama-mtmd-cli
 # 個別パス上書き: QWEN_ASR_MODEL（本体）/ QWEN_ASR_MMPROJ（mmproj）

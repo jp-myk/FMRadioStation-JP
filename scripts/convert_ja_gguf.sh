@@ -12,12 +12,15 @@
 #   - 推論（parakeet-cli）に torch/NeMo は不要だが、この変換には必要（数 GB）。
 #   - GGUF はイメージに焼かず data/models をマウントする設計のため、ホスト側で 1 回実行する。
 #   - 環境変数で上書き可: PARAKEET_REF（既定 v0.3.2 = DockerFile の ARG と一致）,
-#     MODEL_ID（既定 nvidia/parakeet-tdt_ctc-0.6b-ja）, DTYPE（既定 f16）。
+#     MODEL_ID（既定 nvidia/parakeet-tdt_ctc-0.6b-ja）, DTYPE（既定 f16）,
+#     PARAKEET_CONVERT_PYTHON（既定 3.11）。
 set -euo pipefail
 
 PARAKEET_REF="${PARAKEET_REF:-v0.3.2}"
 MODEL_ID="${MODEL_ID:-nvidia/parakeet-tdt_ctc-0.6b-ja}"
 DTYPE="${DTYPE:-f16}"
+PARAKEET_CONVERT_PYTHON="${PARAKEET_CONVERT_PYTHON:-3.11}"
+VENV_DIR=".venv-py${PARAKEET_CONVERT_PYTHON}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # config と同じ既定（MODELS_DIR、無ければ <repo>/data/models）へ出力する。
@@ -38,19 +41,38 @@ cd "${WORK}"
 
 # 2) 変換用の隔離 venv（CPU 版 torch + scripts の依存）。
 #    uv があれば使い、無ければ標準の python3 -m venv + pip にフォールバックする。
-echo "[convert] setting up venv (cpu torch + scripts/requirements.txt)"
+echo "[convert] setting up venv (Python ${PARAKEET_CONVERT_PYTHON}, cpu torch + scripts/requirements.txt)"
 if command -v uv >/dev/null 2>&1; then
-  uv venv -p 3.12
-  uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-  uv pip install -r scripts/requirements.txt
-  PY=".venv/bin/python"
+  PY="${VENV_DIR}/bin/python"
+  if [ ! -x "${PY}" ]; then
+    uv venv -p "${PARAKEET_CONVERT_PYTHON}" "${VENV_DIR}"
+  else
+    echo "[convert] using existing venv: ${WORK}/${VENV_DIR}"
+  fi
+  # kaldialign（NeMo ASR の依存）はビルド時に cmake コマンドを呼ぶ。
+  # macOS のクリーン環境では Homebrew cmake が無いことがあるため、venv 内の
+  # cmake wheel を先に入れて PATH に出し、ビルド隔離環境から見えるようにする。
+  export PATH="${PWD}/${VENV_DIR}/bin:${PATH}"
+  uv pip install --python "${PY}" cmake
+  uv pip install --python "${PY}" torch --index-url https://download.pytorch.org/whl/cpu
+  uv pip install --python "${PY}" -r scripts/requirements.txt
 else
-  command -v python3 >/dev/null 2>&1 || { echo "uv か python3 が必要です。" >&2; exit 1; }
-  python3 -m venv .venv
-  ./.venv/bin/pip install --upgrade pip
-  ./.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
-  ./.venv/bin/pip install -r scripts/requirements.txt
-  PY="./.venv/bin/python"
+  PYTHON_BIN="${PARAKEET_CONVERT_PYTHON_BIN:-python${PARAKEET_CONVERT_PYTHON}}"
+  command -v "${PYTHON_BIN}" >/dev/null 2>&1 || {
+    echo "uv か ${PYTHON_BIN} が必要です（例: PARAKEET_CONVERT_PYTHON_BIN=/path/to/python3.11）。" >&2
+    exit 1
+  }
+  PY="./${VENV_DIR}/bin/python"
+  if [ ! -x "${PY}" ]; then
+    "${PYTHON_BIN}" -m venv "${VENV_DIR}"
+  else
+    echo "[convert] using existing venv: ${WORK}/${VENV_DIR}"
+  fi
+  export PATH="${PWD}/${VENV_DIR}/bin:${PATH}"
+  "${PY}" -m pip install --upgrade pip
+  "${PY}" -m pip install cmake
+  "${PY}" -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+  "${PY}" -m pip install -r scripts/requirements.txt
 fi
 
 # 3) 変換 → data/models へ F16 で出力。失敗時に既存ファイルを壊さないよう .new に書いて差し替える。
