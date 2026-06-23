@@ -1,0 +1,32 @@
+# ラジオ局の設定（radio_core/stations.py が読み込む）
+# 局IDは Radiko API の正式 station_id に準拠する。
+# freq は Hz の整数で記述する（PyYAML は 76.1e6 を文字列として読むため、
+# 必ず整数 Hz で書くこと。例: 80.0MHz → 80000000、594kHz → 594000）。
+stations:
+  # FM局
+  - { id: INT,          name: interfm,            freq: 76100000, type: fm }
+  - { id: BAYFM78,      name: bayfm78,            freq: 78000000, type: fm }
+  - { id: FM-FUJI,      name: FM FUJI,            freq: 78600000, type: fm }
+  - { id: NACK5,        name: NACK5,              freq: 79500000, type: fm }
+  - { id: FMT,          name: TOKYO FM,           freq: 80000000, type: fm }
+  - { id: FMJ,          name: J-WAVE,             freq: 81300000, type: fm }
+  - { id: JOAK-FM,      name: NHK-FM 東京,        freq: 82500000, type: fm }
+  - { id: YFM,          name: FMヨコハマ,         freq: 84700000, type: fm }
+  # AM局
+  - { id: JOAK,         name: NHKラジオ第1,       freq: 594000,   type: am }
+  - { id: JOAB,         name: NHKラジオ第2,       freq: 693000,   type: am }
+  # ワイドFM / FM補完放送
+  - { id: AFN,          name: AFN Tokyo,          freq: 89100000, type: fm }
+  - { id: TBS,          name: TBSラジオ,          freq: 90500000, type: fm }
+  - { id: QRR,          name: 文化放送,           freq: 91600000, type: fm }
+  - { id: LFR,          name: ニッポン放送,       freq: 93000000, type: fm }
+  - { id: JORF,         name: ラジオ日本,         freq: 92400000, type: fm }
+  # 首都圏外エリア
+  - { id: FM-TOSHIMA,   name: FMとしま,           freq: 77500000, type: fm }
+  - { id: MUSASHINO,    name: むさしのFM,         freq: 78200000, type: fm }
+  - { id: KATSUSHIKA,   name: かつしかFM,         freq: 78900000, type: fm }
+  - { id: TAMALAKE,     name: 多摩レイクサイドFM, freq: 79000000, type: fm }
+  - { id: KAWASAKI,     name: かわさきFM,         freq: 79100000, type: fm }
+  - { id: SETAGAYA,     name: FM世田谷,           freq: 83400000, type: fm }
+  - { id: FM-TACHIKAWA, name: FMたちかわ,         freq: 83600000, type: fm }
+  - { id: CHOFU,        name: 調布FM,             freq: 83800000, type: fm }

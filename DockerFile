@@ -1,3 +1,61 @@
+# --- Stage 0: ASR ランタイム（parakeet.cpp）ビルド ---
+# parakeet-tdt_ctc-0.6b-ja の GGUF を実行する C++/ggml ランタイム。
+# BUILD_SHARED_LIBS=OFF で parakeet / ggml を静的リンクし、自己完結バイナリ
+# build/examples/cli/parakeet-cli を生成 → 最終イメージへバイナリ 1 個だけコピーする
+# （これをしないと共有ライブラリが無く実行時に exit 127 となる）。
+# GGML_NATIVE=OFF でホスト固有 ISA 拡張を無効化し、別 CPU 上でも動く可搬ビルドにする。
+# torch/NeMo は不要（GGUF は変換済みを data/models にマウントする）。
+FROM debian:bookworm-slim AS asr-builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    cmake \
+    build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+# リリースタグに pin（2026-06-17 時点の v0.3.2）。更新時はタグを差し替える。
+ARG PARAKEET_REF=v0.3.2
+RUN git clone https://github.com/mudler/parakeet.cpp.git src && \
+    git -C src checkout "${PARAKEET_REF}" && \
+    git -C src submodule update --init --recursive && \
+    cmake -S src -B src/build -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DGGML_NATIVE=OFF \
+        -DPARAKEET_BUILD_TESTS=OFF && \
+    cmake --build src/build -j "$(nproc)" && \
+    install -Dm755 src/build/examples/cli/parakeet-cli /out/parakeet-cli
+
+# --- Stage 0b: ASR ランタイム（llama.cpp / llama-mtmd-cli）ビルド ---
+# Qwen3-ASR-1.7B（ggml-org/Qwen3-ASR-1.7B-GGUF, 本体 + mmproj 音声エンコーダ）を実行する
+# llama.cpp のマルチモーダル CLI。asr-builder と同様 BUILD_SHARED_LIBS=OFF で静的リンクし
+# 自己完結バイナリ build/bin/llama-mtmd-cli を最終イメージへ 1 個だけコピーする
+# （共有ライブラリが無いと実行時 exit 127 になる）。GGML_NATIVE=OFF で可搬ビルド。
+# モデル（本体 GGUF / mmproj GGUF）はイメージに焼かず data/models をマウントして供給する。
+FROM debian:bookworm-slim AS llama-builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    cmake \
+    build-essential \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+# リリースタグに pin。更新時はタグを差し替える（Qwen3-ASR の音声 mtmd 対応を含む新しめの版）。
+ARG LLAMA_REF=b9748
+RUN git clone https://github.com/ggml-org/llama.cpp.git src && \
+    git -C src checkout "${LLAMA_REF}" && \
+    cmake -S src -B src/build -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DGGML_NATIVE=OFF \
+        -DLLAMA_CURL=OFF \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_SERVER=OFF && \
+    cmake --build src/build -j "$(nproc)" --target llama-mtmd-cli && \
+    install -Dm755 src/build/bin/llama-mtmd-cli /out/llama-mtmd-cli
+
 # --- Stage 1: Base Image ---
 # Debian "Bookworm" ベースの軽量な公式Pythonイメージを使用
 FROM debian:bookworm-slim
@@ -13,6 +71,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gnuradio \
     gr-osmosdr \
+    ffmpeg \
     python3 \
     python3-pip \
     curl \
@@ -34,11 +93,19 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY README.md .
 COPY radio_core/ radio_core/
+COPY asr_core/ asr_core/
 
 # uvを使ってpyproject.tomlから依存関係をインストール
 # --system: 仮想環境を作らず、システムのPython環境に直接インストール (Dockerのベストプラクティス)
 # --no-cache: Dockerレイヤーのキャッシュを利用するため、uv自体のキャッシュは無効化しイメージサイズを削減
 RUN uv pip install --system --no-cache --break-system-packages .
+
+# ASR ランタイム（parakeet-cli）をビルドステージからコピー。
+# モデル本体（VAD onnx / ASR gguf）はイメージに焼かず、docker-compose で
+# data/models をマウントし MODELS_DIR から参照する（イメージ非同梱）。
+COPY --from=asr-builder /out/parakeet-cli /usr/local/bin/parakeet-cli
+# llama.cpp の音声マルチモーダル CLI（Qwen3-ASR 等の llama_mtmd backend 用）。
+COPY --from=llama-builder /out/llama-mtmd-cli /usr/local/bin/llama-mtmd-cli
 
 # アプリケーションのソースコードをコンテナにコピー
 COPY radio_receiver.py .
@@ -46,6 +113,7 @@ COPY radio_scheduler.py .
 COPY radio_scheduler_webui.py .
 COPY templates/ templates/
 COPY static/ static/
+COPY config/ config/
 
 # --- Stage 5: Execution Command ---
 # コンテナ起動時にスクリプトを実行 (docker-compose 側でコマンドを上書き可能)

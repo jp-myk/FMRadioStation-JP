@@ -3,7 +3,38 @@ import fractions
 
 try:
     from gnuradio import gr, analog, filter as gr_filter, blocks
-    import osmosdr
+    try:
+        import osmosdr
+    except ImportError:
+        from gnuradio import soapy as _soapy
+
+        class _SoapySourceAdapter:
+            """Small osmosdr.source-compatible wrapper around GNU Radio's Soapy source."""
+
+            def __init__(self, args=""):
+                dev_args = "driver=rtlsdr"
+                if args and "rtl" in args.lower():
+                    dev_args = args
+                self._source = _soapy.source(dev_args, "fc32", 1, "", "", [""], [""])
+
+            def set_sample_rate(self, sample_rate):
+                self._source.set_sample_rate(0, sample_rate)
+
+            def set_center_freq(self, freq):
+                self._source.set_frequency(0, freq)
+
+            def set_gain(self, gain):
+                self._source.set_gain(0, gain)
+
+            def __getattr__(self, name):
+                return getattr(self._source, name)
+
+        class _SoapyOsmoCompat:
+            @staticmethod
+            def source(args=""):
+                return _SoapySourceAdapter(args)
+
+        osmosdr = _SoapyOsmoCompat()
     if not hasattr(gr_filter.firdes, 'WIN_HAMMING'):
         gr_filter.firdes.WIN_HAMMING = 1
 except ImportError as e:

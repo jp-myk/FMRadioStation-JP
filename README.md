@@ -48,7 +48,12 @@ Uses the Radiko program guide API to schedule recordings by program.
 **Prerequisites**
 
 - Docker / Docker Compose installed
+- A Docker daemon is running via Docker Desktop, Colima, OrbStack, or similar
+- Docker CLI buildx plugin is available (`docker buildx version`)
 - SDR device connected to host USB port
+
+On macOS, `failed to connect to the docker API at unix:///var/run/docker.sock` means the Docker daemon is not running. Start Docker Desktop or your Docker runtime, then retry.
+If `Docker Compose requires buildx plugin to be installed` appears, install/enable the buildx plugin (it is normally bundled with Docker Desktop).
 
 **Steps**
 
@@ -69,22 +74,115 @@ docker compose build
 
 ### Running Locally
 
-**Prerequisites**
+The local Python dependencies are managed by `uv`. SDR support depends on native GNU Radio packages, so install those with your OS package manager first.
 
-- Python 3.10 or higher
-- GNU Radio (`gnuradio`)
-- OsmoSDR driver (`gr-osmosdr`)
+#### Ubuntu / Debian
 
 ```bash
-# Install GNU Radio and OsmoSDR (Debian/Ubuntu)
-sudo apt install gnuradio gr-osmosdr
+# Install GNU Radio and the OsmoSDR source block
+sudo apt update
+sudo apt install -y gnuradio gr-osmosdr ffmpeg
 
-# Install uv
+# Install uv if it is not already installed
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install dependencies
-uv pip install --system .
+# Create a venv that can see GNU Radio's system Python bindings, then sync Python dependencies
+uv venv --clear --system-site-packages --python python3
+uv sync
+
+# Create runtime directories
+mkdir -p log recordings data
+printf '{"scheduled": [], "in_progress": [], "completed": []}\n' > state.json
+
+# Start the Web UI
+uv run python radio_scheduler_webui.py
 ```
+
+Open the URL printed by Uvicorn, normally `http://localhost:5000`. To force a port, set `WEBUI_PORT`, for example:
+
+```bash
+WEBUI_PORT=5002 uv run python radio_scheduler_webui.py
+```
+
+#### macOS
+
+```bash
+# Install GNU Radio, RTL-SDR support, and the SoapySDR RTL-SDR driver
+brew install gnuradio librtlsdr soapysdr soapyrtlsdr ffmpeg
+
+# Install uv if it is not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create a venv that can see GNU Radio's Homebrew Python bindings, then sync Python dependencies
+uv venv --clear --system-site-packages --python /opt/homebrew/bin/python3.14
+uv sync
+
+# Create runtime directories
+mkdir -p log recordings data
+printf '{"scheduled": [], "in_progress": [], "completed": []}\n' > state.json
+
+# Start the Web UI
+uv run python radio_scheduler_webui.py
+```
+
+On macOS, port 5000 is sometimes already used by AirPlay Receiver / Control Center. The Web UI automatically tries the next free port up to 5010; check the Uvicorn output and open that URL. You can also choose the port explicitly:
+
+```bash
+WEBUI_PORT=5002 uv run python radio_scheduler_webui.py
+```
+
+To run the CLI scheduler locally instead of the Web UI:
+
+```bash
+uv run python radio_scheduler.py --stations FMT,J-WAVE --rec-dir recordings --log-dir log
+```
+
+To run a direct SDR recording check with `radio_receiver.py` on macOS:
+
+```bash
+# Example: record TOKYO FM for 10 seconds
+uv run python radio_receiver.py \
+  --mode fm \
+  --station FMT \
+  --duration 10 \
+  --output recordings/test.wav \
+  --sample_rate 2400000 \
+  --audio_rate 24000 \
+  --bit_rate 16 \
+  --gain 40
+```
+
+`radio_receiver.py` accepts either `--station` or `--freq`; for example, `--freq 80e6` tunes 80.0 MHz directly. Run it from the repository root so `config/tunnels.yaml` can be found. If `uv: file not found` (or `uv: command not found`) appears after installing uv, open a new shell or add uv to your PATH, for example:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+command -v uv
+```
+
+`uv sync` installs the Python dependencies declared in `pyproject.toml`. GNU Radio / SDR support still must be installed separately with Homebrew because those native packages are not Python packages in this project. If `No module named 'gnuradio'` appears under `uv run`, recreate `.venv` with `uv venv --clear --system-site-packages --python /opt/homebrew/bin/python3.14` and run `uv sync` again; a normal isolated uv venv cannot import Homebrew's GNU Radio bindings.
+
+You do not need to run `source .venv/bin/activate` when using `uv run ...`; uv automatically runs the command inside the project environment. Activate `.venv` only if you want to run commands directly as `python ...` or inspect the environment interactively.
+
+### Speech Recognition Models (for auto-subtitles)
+
+The Web UI's auto-subtitle feature uses two models placed under `data/models/`:
+
+- `silero_vad.onnx` — voice activity detection (downloaded)
+- `parakeet-tdt-0.6b-ja.gguf` — Japanese ASR for parakeet.cpp (converted from `nvidia/parakeet-tdt_ctc-0.6b-ja`)
+
+Install both with one script:
+
+```bash
+./scripts/install_models.sh
+```
+
+This downloads `silero_vad.onnx`, and—because no parakeet.cpp-format Japanese GGUF is published—converts `nvidia/parakeet-tdt_ctc-0.6b-ja` to GGUF via `scripts/convert_ja_gguf.sh` (needs Python + torch/NeMo; runs once on the host). If you host your own converted GGUF, set `PARAKEET_GGUF_URL` to download it instead:
+
+```bash
+PARAKEET_GGUF_URL=https://example.com/parakeet-tdt-0.6b-ja.gguf ./scripts/install_models.sh
+```
+
+Both models are mounted into the container via `./data:/app/data` (not baked into the image). Override the directory with `MODELS_DIR`, or individual paths with `SILERO_VAD_ONNX` / `PARAKEET_MODEL`. If the models are absent, recording/playback still works — only subtitles are disabled.
 
 ---
 
@@ -102,12 +200,12 @@ docker compose --profile web up -d
 docker compose --profile web down
 ```
 
-After starting, open `http://localhost:5000` in your browser.
+After starting, open `http://localhost:5001` in your browser.
 
 To run locally:
 
 ```bash
-python3 radio_scheduler_webui.py
+uv run python radio_scheduler_webui.py
 ```
 
 ### CLI Scheduler Mode (Headless automatic recording)
@@ -125,7 +223,7 @@ The default recording station is `FMT`. To change it, edit the `command` section
 To run locally:
 
 ```bash
-python3 radio_scheduler.py --stations FMT,J-WAVE --rec-dir recordings --log-dir log
+uv run python radio_scheduler.py --stations FMT,J-WAVE --rec-dir recordings --log-dir log
 ```
 
 ### Viewing Logs
@@ -169,6 +267,8 @@ radio_receiver/
 ├── templates/                 # Web UI templates
 ├── static/                    # Web UI static files
 ├── state.json                 # Reservation state file (Web UI)
+├── scripts/                   # Model install/convert helpers (install_models.sh, convert_ja_gguf.sh)
+├── data/models/               # VAD/ASR models (mounted, not baked into the image)
 ├── log/                       # Log output directory
 └── recordings/                # Recording output directory
 ```

@@ -42,16 +42,25 @@
         <audio controls class="w-100 audio-player" preload="none"
                src="{{ url_for('serve_recordings', filename=fname) }}">
         </audio>
+        <div class="subtitle-block mt-2" data-filename="{{ fname }}"
+             data-has-vtt="{{ '1' if vtt_map.get(fname) else '0' }}">
+          <div class="subtitle-controls d-flex align-items-center flex-wrap gap-2"></div>
+          <div class="subtitle-body transcript-body d-none"></div>
+        </div>
         {% else %}
         <p class="text-secondary small"><i class="bi bi-exclamation-circle me-1"></i>ファイルなし</p>
         {% endif %}
       </div>
       {% if fname %}
-      <div class="card-footer border-0 pt-0 pb-2 px-3 text-end">
+      <div class="card-footer border-0 pt-0 pb-2 px-3 d-flex justify-content-end gap-2">
         <a href="{{ url_for('serve_recordings', filename=fname) }}" download
            class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-download me-1"></i>ダウンロード
         </a>
+        <button class="btn btn-sm btn-outline-danger"
+                onclick="deleteRecording({{ loop.index0 }}, this)">
+          <i class="bi bi-trash3 me-1"></i>削除
+        </button>
       </div>
       {% endif %}
     </div>
@@ -72,12 +81,21 @@
         <audio controls class="w-100 audio-player" preload="none"
                src="{{ url_for('serve_recordings', filename=filename) }}">
         </audio>
+        <div class="subtitle-block mt-2" data-filename="{{ filename }}"
+             data-has-vtt="{{ '1' if vtt_map.get(filename) else '0' }}">
+          <div class="subtitle-controls d-flex align-items-center flex-wrap gap-2"></div>
+          <div class="subtitle-body transcript-body d-none"></div>
+        </div>
       </div>
-      <div class="card-footer border-0 pt-0 pb-2 px-3 text-end">
+      <div class="card-footer border-0 pt-0 pb-2 px-3 d-flex justify-content-end gap-2">
         <a href="{{ url_for('serve_recordings', filename=filename) }}" download
            class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-download me-1"></i>ダウンロード
         </a>
+        <button class="btn btn-sm btn-outline-danger"
+                onclick="deleteRecordingFile('{{ filename }}', this)">
+          <i class="bi bi-trash3 me-1"></i>削除
+        </button>
       </div>
     </div>
   </div>
@@ -86,4 +104,186 @@
 {% endif %}
 
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.ASR_BATCH_AVAILABLE = {{ 'true' if asr_batch_available else 'false' }};
+
+function deleteRecording(idx, btn) {
+  if (!confirm('この録音ファイルを削除しますか？')) return;
+  btn.disabled = true;
+  fetch('/api/recorded/' + idx, { method: 'DELETE' })
+    .then(r => { if (!r.ok) throw new Error('削除に失敗しました'); return r; })
+    .then(() => {
+      const card = btn.closest('.col-12');
+      card.classList.add('fade-out');
+      setTimeout(() => card.remove(), 300);
+    })
+    .catch(err => { alert(err.message); btn.disabled = false; });
+}
+
+function deleteRecordingFile(filename, btn) {
+  if (!confirm('この録音ファイルを削除しますか？')) return;
+  btn.disabled = true;
+  fetch('/api/recorded/files/' + encodeURIComponent(filename), { method: 'DELETE' })
+    .then(r => { if (!r.ok) throw new Error('削除に失敗しました'); return r; })
+    .then(() => {
+      const card = btn.closest('.col-12');
+      card.classList.add('fade-out');
+      setTimeout(() => card.remove(), 300);
+    })
+    .catch(err => { alert(err.message); btn.disabled = false; });
+}
+
+// ===== 自動字幕（WebVTT）生成・再生アラインメント =====
+
+function vttUrlFor(filename) {
+  return '/recordings/' + encodeURIComponent(filename.replace(/\.wav$/, '') + '.vtt');
+}
+
+// "HH:MM:SS.mmm" / "MM:SS.mmm" → 秒
+function parseVttTime(s) {
+  const parts = s.trim().split(':');
+  let sec = 0;
+  for (const p of parts) sec = sec * 60 + parseFloat(p);
+  return sec;
+}
+
+function parseVtt(text) {
+  const cues = [];
+  const blocks = text.replace(/\r/g, '').split(/\n\n+/);
+  for (const block of blocks) {
+    const lines = block.split('\n').filter(l => l.trim() !== '');
+    const tl = lines.find(l => l.includes('-->'));
+    if (!tl) continue;
+    const m = tl.split('-->');
+    if (m.length < 2) continue;
+    const start = parseVttTime(m[0]);
+    const end = parseVttTime(m[1].trim().split(/\s+/)[0]);
+    const txt = lines.slice(lines.indexOf(tl) + 1).join(' ').trim();
+    if (txt) cues.push({ start, end, text: txt });
+  }
+  return cues;
+}
+
+function controlsGenerateBtn(block) {
+  const controls = block.querySelector('.subtitle-controls');
+  controls.innerHTML =
+    '<button class="btn btn-sm btn-outline-info subtitle-gen-btn">' +
+    '<i class="bi bi-card-text me-1"></i>字幕生成</button>';
+  controls.querySelector('button').onclick = () => startTranscribe(block);
+}
+
+function controlsRunning(block) {
+  block.querySelector('.subtitle-controls').innerHTML =
+    '<span class="badge bg-info-subtle text-info-emphasis">' +
+    '<span class="spinner-border spinner-border-sm me-1" role="status"></span>字幕生成中…</span>';
+}
+
+function controlsDone(block) {
+  const filename = block.dataset.filename;
+  block.querySelector('.subtitle-controls').innerHTML =
+    '<span class="badge bg-success-subtle text-success-emphasis">' +
+    '<i class="bi bi-check-circle-fill me-1"></i>自動字幕生成済</span>' +
+    '<a class="btn btn-sm btn-outline-secondary" download href="' + vttUrlFor(filename) + '">' +
+    '<i class="bi bi-download me-1"></i>VTT</a>';
+}
+
+function controlsError(block, msg) {
+  const controls = block.querySelector('.subtitle-controls');
+  controls.innerHTML =
+    '<span class="text-danger small me-2"><i class="bi bi-exclamation-triangle me-1"></i>' +
+    (msg || '字幕生成に失敗しました') + '</span>' +
+    '<button class="btn btn-sm btn-outline-info subtitle-gen-btn">再試行</button>';
+  controls.querySelector('button').onclick = () => startTranscribe(block);
+}
+
+function startTranscribe(block) {
+  const filename = block.dataset.filename;
+  controlsRunning(block);
+  fetch('/api/transcribe/' + encodeURIComponent(filename), { method: 'POST' })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (!ok) { controlsError(block, d.error); return; }
+      if (d.status === 'done') { controlsDone(block); loadSubtitles(block); return; }
+      pollTranscribe(block);
+    })
+    .catch(() => controlsError(block));
+}
+
+function pollTranscribe(block) {
+  const filename = block.dataset.filename;
+  const timer = setInterval(() => {
+    fetch('/api/transcribe/' + encodeURIComponent(filename))
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === 'done') {
+          clearInterval(timer);
+          controlsDone(block);
+          loadSubtitles(block);
+        } else if (d.status === 'error') {
+          clearInterval(timer);
+          controlsError(block);
+        }
+      })
+      .catch(() => {});
+  }, 2000);
+}
+
+function loadSubtitles(block) {
+  const filename = block.dataset.filename;
+  const body = block.querySelector('.subtitle-body');
+  const audio = block.closest('.recorded-card').querySelector('audio');
+  body.classList.remove('d-none');
+  body.innerHTML = '<div class="transcript-empty">字幕を読み込み中…</div>';
+  fetch(vttUrlFor(filename))
+    .then(r => { if (!r.ok) throw new Error(); return r.text(); })
+    .then(text => {
+      const cues = parseVtt(text);
+      if (!cues.length) { body.innerHTML = '<div class="transcript-empty">字幕がありません</div>'; return; }
+      body.innerHTML = '';
+      cues.forEach((cue, i) => {
+        const line = document.createElement('div');
+        line.className = 'transcript-line subtitle-cue';
+        line.textContent = cue.text;
+        line.onclick = () => { audio.currentTime = cue.start; audio.play(); };
+        cue.el = line;
+        body.appendChild(line);
+      });
+      let activeIdx = -1;
+      audio.addEventListener('timeupdate', () => {
+        const t = audio.currentTime;
+        let idx = -1;
+        for (let i = 0; i < cues.length; i++) {
+          if (t >= cues[i].start && t < cues[i].end) { idx = i; break; }
+          if (t >= cues[i].start) idx = i;  // 端境はその時点の直近 cue を採用
+        }
+        if (idx === activeIdx) return;
+        if (activeIdx >= 0) cues[activeIdx].el.classList.remove('active');
+        activeIdx = idx;
+        if (idx >= 0) {
+          const el = cues[idx].el;
+          el.classList.add('active');
+          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      });
+    })
+    .catch(() => { body.innerHTML = '<div class="transcript-empty">字幕の読み込みに失敗しました</div>'; });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.subtitle-block').forEach(block => {
+    if (block.dataset.hasVtt === '1') {
+      controlsDone(block);
+      loadSubtitles(block);
+    } else if (window.ASR_BATCH_AVAILABLE) {
+      controlsGenerateBtn(block);
+    } else {
+      block.querySelector('.subtitle-controls').innerHTML =
+        '<span class="transcript-empty">字幕生成は利用できません</span>';
+    }
+  });
+});
+</script>
 {% endblock %}
