@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# nvidia/parakeet-tdt_ctc-0.6b-ja を parakeet.cpp 互換 GGUF へ変換し、
-# data/models/parakeet-tdt-0.6b-ja.gguf に出力するワンショット変換ヘルパ。
+# NeMo の parakeet / nemotron 系モデルを parakeet.cpp 互換 GGUF へ変換し、
+# data/models/<GGUF_OUT_NAME> に出力するワンショット変換ヘルパ。
+# 既定は nvidia/parakeet-tdt_ctc-0.6b-ja → parakeet-tdt-0.6b-ja.gguf。
+# MODEL_ID と GGUF_OUT_NAME を上書きすれば他モデル（例: nemotron-3.5-asr-streaming-0.6b）
+# にも使える。install_models.sh が両モデルの変換にこのスクリプトを再利用する。
 #
 # なぜ必要か:
 #   CrispASR 用の GGUF（cstr/parakeet-tdt-0.6b-ja-GGUF）は metadata schema が
@@ -12,12 +15,13 @@
 #   - 推論（parakeet-cli）に torch/NeMo は不要だが、この変換には必要（数 GB）。
 #   - GGUF はイメージに焼かず data/models をマウントする設計のため、ホスト側で 1 回実行する。
 #   - 環境変数で上書き可: PARAKEET_REF（既定 v0.3.2 = DockerFile の ARG と一致）,
-#     MODEL_ID（既定 nvidia/parakeet-tdt_ctc-0.6b-ja）, DTYPE（既定 f16）,
-#     PARAKEET_CONVERT_PYTHON（既定 3.11）。
+#     MODEL_ID（既定 nvidia/parakeet-tdt_ctc-0.6b-ja）, GGUF_OUT_NAME（既定
+#     parakeet-tdt-0.6b-ja.gguf）, DTYPE（既定 f16）, PARAKEET_CONVERT_PYTHON（既定 3.11）。
 set -euo pipefail
 
 PARAKEET_REF="${PARAKEET_REF:-v0.3.2}"
 MODEL_ID="${MODEL_ID:-nvidia/parakeet-tdt_ctc-0.6b-ja}"
+GGUF_OUT_NAME="${GGUF_OUT_NAME:-parakeet-tdt-0.6b-ja.gguf}"
 DTYPE="${DTYPE:-f16}"
 PARAKEET_CONVERT_PYTHON="${PARAKEET_CONVERT_PYTHON:-3.11}"
 VENV_DIR=".venv-py${PARAKEET_CONVERT_PYTHON}"
@@ -25,7 +29,7 @@ VENV_DIR=".venv-py${PARAKEET_CONVERT_PYTHON}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # config と同じ既定（MODELS_DIR、無ければ <repo>/data/models）へ出力する。
 MODELS_DIR="${MODELS_DIR:-${REPO_ROOT}/data/models}"
-OUT="${MODELS_DIR}/parakeet-tdt-0.6b-ja.gguf"
+OUT="${MODELS_DIR}/${GGUF_OUT_NAME}"
 WORK="${REPO_ROOT}/.cache/parakeet.cpp"
 
 command -v git >/dev/null 2>&1 || { echo "git が必要です。" >&2; exit 1; }

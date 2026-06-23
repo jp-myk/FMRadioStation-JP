@@ -165,24 +165,30 @@ You do not need to run `source .venv/bin/activate` when using `uv run ...`; uv a
 
 ### Speech Recognition Models (for auto-subtitles)
 
-The Web UI's auto-subtitle feature uses two models placed under `data/models/`:
+The Web UI's auto-subtitle feature uses models placed under `data/models/`:
 
 - `silero_vad.onnx` — voice activity detection (downloaded)
 - `parakeet-tdt-0.6b-ja.gguf` — Japanese ASR for parakeet.cpp (converted from `nvidia/parakeet-tdt_ctc-0.6b-ja`)
+- `nemotron-3.5-asr-streaming-0.6b.gguf` — multilingual RNNT streaming ASR for parakeet.cpp (converted from `nvidia/nemotron-3.5-asr-streaming-0.6b`); this is the **default** model in `config/asr.yaml`
 
-Install both with one script:
+Install them with one script:
 
 ```bash
 ./scripts/install_models.sh
 ```
 
-This downloads `silero_vad.onnx`, and—because no parakeet.cpp-format Japanese GGUF is published—converts `nvidia/parakeet-tdt_ctc-0.6b-ja` to GGUF via `scripts/convert_ja_gguf.sh` (needs Python + torch/NeMo; runs once on the host). If you host your own converted GGUF, set `PARAKEET_GGUF_URL` to download it instead:
+This downloads `silero_vad.onnx` and—because no parakeet.cpp-format GGUFs are published—converts both `nvidia/parakeet-tdt_ctc-0.6b-ja` and `nvidia/nemotron-3.5-asr-streaming-0.6b` to GGUF via `scripts/convert_ja_gguf.sh` (needs Python + torch/NeMo; runs once on the host; both conversions share the same venv). It also downloads the Qwen3-ASR GGUFs.
+
+Skip any of them with `INSTALL_PARAKEET_JA=0`, `INSTALL_NEMOTRON=0`, or `INSTALL_QWEN_ASR=0`. If you host your own converted GGUFs, set `PARAKEET_GGUF_URL` / `NEMOTRON_GGUF_URL` to download them instead of converting:
 
 ```bash
-PARAKEET_GGUF_URL=https://example.com/parakeet-tdt-0.6b-ja.gguf ./scripts/install_models.sh
+# Only the default (nemotron) model, downloaded from your own host
+INSTALL_PARAKEET_JA=0 INSTALL_QWEN_ASR=0 \
+  NEMOTRON_GGUF_URL=https://example.com/nemotron-3.5-asr-streaming-0.6b.gguf \
+  ./scripts/install_models.sh
 ```
 
-Both models are mounted into the container via `./data:/app/data` (not baked into the image). Override the directory with `MODELS_DIR`, or individual paths with `SILERO_VAD_ONNX` / `PARAKEET_MODEL`. If the models are absent, recording/playback still works — only subtitles are disabled.
+The models are mounted into the container via `./data:/app/data` (not baked into the image). Override the directory with `MODELS_DIR`, or individual paths with `SILERO_VAD_ONNX` / `PARAKEET_MODEL`. If the model selected in `config/asr.yaml` is absent, recording/playback still works — only subtitles are disabled.
 
 #### ASR runtime CLIs (local runs only)
 

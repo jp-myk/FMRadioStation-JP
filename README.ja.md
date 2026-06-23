@@ -165,24 +165,30 @@ command -v uv
 
 ### 音声認識モデル（字幕生成用）
 
-Web UI の自動字幕機能は `data/models/` に置く 2 つのモデルを使います:
+Web UI の自動字幕機能は `data/models/` に置くモデルを使います:
 
 - `silero_vad.onnx` — 音声区間検出（ダウンロード）
 - `parakeet-tdt-0.6b-ja.gguf` — parakeet.cpp 用の日本語 ASR（`nvidia/parakeet-tdt_ctc-0.6b-ja` から変換）
+- `nemotron-3.5-asr-streaming-0.6b.gguf` — parakeet.cpp 用の多言語 RNNT ストリーミング ASR（`nvidia/nemotron-3.5-asr-streaming-0.6b` から変換）。`config/asr.yaml` の**既定モデル**
 
-次のスクリプトで両方をまとめて用意できます:
+次のスクリプトでまとめて用意できます:
 
 ```bash
 ./scripts/install_models.sh
 ```
 
-`silero_vad.onnx` はダウンロードし、parakeet.cpp 形式の日本語 GGUF は公開配布が無いため `nvidia/parakeet-tdt_ctc-0.6b-ja` を `scripts/convert_ja_gguf.sh` で GGUF へ変換します（Python + torch/NeMo を使用、ホスト側で一度だけ）。Qwen3-ASR 用の本体 GGUF と mmproj も既定でダウンロードします（不要な場合は `INSTALL_QWEN_ASR=0`）。自前で変換済み GGUF をホストしている場合は `PARAKEET_GGUF_URL` を指定するとダウンロードに切り替わります:
+`silero_vad.onnx` はダウンロードし、parakeet.cpp 形式の GGUF は公開配布が無いため `nvidia/parakeet-tdt_ctc-0.6b-ja` と `nvidia/nemotron-3.5-asr-streaming-0.6b` の両方を `scripts/convert_ja_gguf.sh` で GGUF へ変換します（Python + torch/NeMo を使用、ホスト側で一度だけ。2 つの変換は同じ venv を共有）。Qwen3-ASR 用の本体 GGUF と mmproj も既定でダウンロードします。
+
+それぞれ `INSTALL_PARAKEET_JA=0` / `INSTALL_NEMOTRON=0` / `INSTALL_QWEN_ASR=0` で個別にスキップできます。自前で変換済み GGUF をホストしている場合は `PARAKEET_GGUF_URL` / `NEMOTRON_GGUF_URL` を指定すると変換せずダウンロードに切り替わります:
 
 ```bash
-PARAKEET_GGUF_URL=https://example.com/parakeet-tdt-0.6b-ja.gguf ./scripts/install_models.sh
+# 既定（nemotron）モデルだけを自前ホストからダウンロード
+INSTALL_PARAKEET_JA=0 INSTALL_QWEN_ASR=0 \
+  NEMOTRON_GGUF_URL=https://example.com/nemotron-3.5-asr-streaming-0.6b.gguf \
+  ./scripts/install_models.sh
 ```
 
-両モデルは `./data:/app/data` でコンテナにマウントされます（イメージには焼きません）。保存先は `MODELS_DIR`、個別パスは `SILERO_VAD_ONNX` / `PARAKEET_MODEL` で上書きできます。モデルが無い場合でも録音・再生は継続し、字幕のみ無効化されます。
+各モデルは `./data:/app/data` でコンテナにマウントされます（イメージには焼きません）。保存先は `MODELS_DIR`、個別パスは `SILERO_VAD_ONNX` / `PARAKEET_MODEL` で上書きできます。`config/asr.yaml` で選択中のモデルが無い場合でも録音・再生は継続し、字幕のみ無効化されます。
 
 #### ASR ランタイム CLI（ローカル実行時のみ）
 
