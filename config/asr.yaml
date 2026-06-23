@@ -10,7 +10,7 @@
 #                  mmproj(音声エンコーダ gguf)/language/prompt。個別パス上書き:
 #                  QWEN_ASR_MODEL / QWEN_ASR_MMPROJ。
 asr:
-  model: Qwen3-ASR-1.7B-Q8_0.gguf  # ↓ models: のキーから選ぶ
+  model: parakeet-tdt-0.6b-ja  # ↓ models: のキーから選ぶ
   models:
     parakeet-tdt-0.6b-ja:          # 日本語専用・TDT/CTC ハイブリッド
       backend: parakeet_cpp
