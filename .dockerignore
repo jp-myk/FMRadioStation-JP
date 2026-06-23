@@ -1,0 +1,28 @@
+.git
+.gitignore
+
+# Runtime data mounted by docker-compose
+recordings/
+log/
+data/
+state.json
+
+# Python/cache artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Generated media/logs
+*.log
+*.wav
+*.mp3
+*.mp4
