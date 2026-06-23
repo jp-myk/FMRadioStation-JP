@@ -48,5 +48,24 @@ else
   MODELS_DIR="${MODELS_DIR}" "${REPO_ROOT}/scripts/convert_ja_gguf.sh"
 fi
 
+# 3) Qwen3-ASR（llama_mtmd backend）: 本体 GGUF + mmproj（音声エンコーダ）GGUF
+#    ggml-org/Qwen3-ASR-1.7B-GGUF（gated 無し）の Q8_0 を直接ダウンロード。本体と mmproj の
+#    2 ファイルが必須。INSTALL_QWEN_ASR=1 のときだけ取得する（既定はスキップ・~2.3GB のため）。
+QWEN_ASR_BASE="${QWEN_ASR_BASE:-https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/main}"
+if [ "${INSTALL_QWEN_ASR:-0}" = "1" ]; then
+  for f in Qwen3-ASR-1.7B-Q8_0.gguf mmproj-Qwen3-ASR-1.7B-Q8_0.gguf; do
+    out="${MODELS_DIR}/${f}"
+    if [ -f "${out}" ]; then
+      echo "[install] skip Qwen3-ASR (already exists): ${out}"
+    else
+      echo "[install] downloading ${f} → ${out}"
+      curl -fL --retry 3 -o "${out}.part" "${QWEN_ASR_BASE}/${f}"
+      mv -f "${out}.part" "${out}"
+    fi
+  done
+else
+  echo "[install] skip Qwen3-ASR GGUF (set INSTALL_QWEN_ASR=1 to fetch ~2.3GB Q8_0 + mmproj)"
+fi
+
 echo "[install] done. models in ${MODELS_DIR}:"
 ls -la "${MODELS_DIR}"

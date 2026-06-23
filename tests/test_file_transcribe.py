@@ -38,31 +38,38 @@ def test_write_vtt_structure():
     assert body.count("-->") == 3  # 空白セグメントは除外
 
 
-def test_transcribe_raises_when_binary_missing():
+def _fake_backend(available=True, transcribe=None):
+    """build_backend を差し替えるためのフェイク backend を返すファクトリ。"""
+    be = mock.Mock()
+    be.available = available
+    if transcribe is not None:
+        be.transcribe.side_effect = transcribe
+    return lambda config: be
+
+
+def test_transcribe_raises_when_backend_unavailable():
     cfg = ASRConfig(parakeet_bin="nope", parakeet_model="m.gguf")
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value=None):
+    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=False)):
         try:
             ft.transcribe_wav_to_vtt("/tmp/x.wav", "/tmp/x.vtt", cfg)
         except RuntimeError as e:
-            assert "見つかりません" in str(e)
+            assert "利用できません" in str(e)
         else:
             raise AssertionError("RuntimeError が送出されるべき")
 
 
-def test_available_requires_bin_model_and_vad_onnx():
+def test_available_requires_backend_and_vad_onnx():
     cfg = ASRConfig(parakeet_bin="parakeet-cli", parakeet_model="m.gguf")
-    # 全部揃う（bin 解決・model 設定・vad onnx 実在）→ True
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"), \
+    # backend 利用可 ＋ vad onnx 実在 → True
+    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=True)), \
          mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True):
         assert ft.asr_batch_available(cfg) is True
-    # バイナリ無し → False
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value=None):
+    # backend 利用不可 → False
+    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=False)), \
+         mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True):
         assert ft.asr_batch_available(cfg) is False
-    # モデル未設定 → False
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"):
-        assert ft.asr_batch_available(ASRConfig(parakeet_model="")) is False
     # vad onnx 不在 → False
-    with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"), \
+    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=True)), \
          mock.patch("asr_core.file_transcribe.os.path.exists", return_value=False):
         assert ft.asr_batch_available(cfg) is False
 
@@ -76,12 +83,13 @@ def test_transcribe_wav_to_vtt_end_to_end_mocked():
 
     with tempfile.TemporaryDirectory() as d:
         vtt = os.path.join(d, "rec.vtt")
-        with mock.patch("asr_core.file_transcribe.shutil.which", return_value="/usr/bin/parakeet-cli"), \
+        with mock.patch(
+            "asr_core.file_transcribe.build_backend",
+            _fake_backend(available=True, transcribe=lambda chunk, sr: next(texts)),
+        ), \
              mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True), \
              mock.patch("asr_core.file_transcribe.read_wav_int16", return_value=(samples, 16000)), \
-             mock.patch("asr_core.file_transcribe._detect_speech", return_value=regions), \
-             mock.patch("asr_core.file_transcribe.ParakeetCppBackend") as Backend:
-            Backend.return_value.transcribe.side_effect = lambda chunk, sr: next(texts)
+             mock.patch("asr_core.file_transcribe._detect_speech", return_value=regions):
             ft.transcribe_wav_to_vtt("/tmp/rec.wav", vtt, cfg)
         body = open(vtt, encoding="utf-8").read()
 

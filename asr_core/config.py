@@ -4,6 +4,7 @@ WebUI 側からは ``ASRConfig()`` で既定値、あるいは個別フィール
 VAD パラメータは ``config/vad.yaml`` から読み込む（無ければ組み込み既定値に
 フォールバック）。parakeet.cpp のバイナリ・モデルパスは環境変数で解決する。
 """
+import copy
 import os
 from dataclasses import dataclass, field
 
@@ -47,6 +48,80 @@ def _load_vad_config() -> dict:
 _VAD = _load_vad_config()
 
 
+# 本モジュールから見た既定の ASR 設定ファイル（config/asr.yaml）。
+_DEFAULT_ASR_CONFIG = os.path.join(
+    os.path.dirname(__file__), "..", "config", "asr.yaml"
+)
+
+# config/asr.yaml が無い／読めないときの組み込み既定値（キーは asr.yaml と対応）。
+# model: 使用モデル名（models のキー）。models: モデルごとのプロファイル。
+# 各プロファイルは backend を宣言する（省略時は parakeet_cpp）。
+# - parakeet_cpp: mudler/parakeet.cpp の parakeet-cli。filename(gguf)/decoder/language。
+#   parakeet-tdt は日本語専用 TDT/CTC、nemotron は多言語 RNNT ストリーミング。
+# - llama_mtmd: llama.cpp の llama-mtmd-cli（音声マルチモーダル）。filename(本体 gguf)/
+#   mmproj(音声エンコーダ gguf)/language/prompt。qwen3-asr は Alibaba の transformers 系 ASR を
+#   ggml-org/Qwen3-ASR-1.7B-GGUF(Q8_0) で CPU 実行する。
+_ASR_DEFAULTS = {
+    "model": "parakeet-tdt-0.6b-ja",
+    "models": {
+        "parakeet-tdt-0.6b-ja": {
+            "backend": "parakeet_cpp",
+            "filename": "parakeet-tdt-0.6b-ja.gguf",
+            "decoder": "tdt",
+            "language": "ja",
+        },
+        "nemotron-3.5-asr-streaming-0.6b": {
+            # decoder 空 = --decoder 省略。parakeet-cli は ctc|tdt のみ受け付け、RNN-T は
+            # デフォルトデコーダ（arch=rnnt → rnnt_greedy）で動く。多言語モデルのため
+            # language は BCP-47 ロケール ja-JP（bare 'ja' は不可）。詳細は config/asr.yaml。
+            "backend": "parakeet_cpp",
+            "filename": "nemotron-3.5-asr-streaming-0.6b.gguf",
+            "decoder": "",
+            "language": "ja-JP",
+        },
+        "qwen3-asr-1.7b": {
+            # llama.cpp の llama-mtmd-cli で本体 gguf + mmproj(音声エンコーダ) を使う。
+            # language は Qwen 流儀の言語名（英語表記）。空なら auto 検出。詳細は config/asr.yaml。
+            "backend": "llama_mtmd",
+            "filename": "Qwen3-ASR-1.7B-Q8_0.gguf",
+            "mmproj": "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
+            "language": "Japanese",
+            "prompt": "",
+        },
+    },
+}
+
+
+def _load_asr_config() -> dict:
+    """``config/asr.yaml`` の ``asr:`` セクションを読み込む。
+
+    ファイルが無い／壊れている場合は ``_ASR_DEFAULTS`` にフォールバックする
+    （VAD 設定と同じ方針）。``models`` はプロファイル単位でマージし、既定の 2 モデルを
+    残したまま yaml 側の上書き・追加を反映する。
+    """
+    path = os.environ.get("ASR_CONFIG", _DEFAULT_ASR_CONFIG)
+    cfg = copy.deepcopy(_ASR_DEFAULTS)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        section = data.get("asr") or {}
+        if section.get("model"):
+            cfg["model"] = section["model"]
+        for name, profile in (section.get("models") or {}).items():
+            cfg["models"][name] = {**cfg["models"].get(name, {}), **(profile or {})}
+    except (OSError, yaml.YAMLError):
+        pass
+    return cfg
+
+
+_ASR = _load_asr_config()
+
+
+def _asr_profile(model: str) -> dict:
+    """モデル名 → プロファイル（backend と backend 別パラメータ）。未知なら既定モデル。"""
+    return _ASR["models"].get(model) or _ASR["models"][_ASR_DEFAULTS["model"]]
+
+
 # VAD（onnx）・ASR（gguf）の両モデルを置く単一ディレクトリ。
 # 既定はリポジトリ直下（コンテナでは /app）の data/models。1.4GB の GGUF は
 # イメージに焼かず ./data をマウントして供給する設計のため、小さな VAD onnx も
@@ -59,18 +134,21 @@ _DEFAULT_MODELS_DIR = os.path.abspath(
 )
 
 
-def _default_parakeet_model() -> str:
-    """ASR モデル（gguf）の既定パスを返す。
+def _resolve_model_path(filename: str, env_var: str = "PARAKEET_MODEL") -> str:
+    """ASR モデル（gguf）のパスを ``filename`` から解決して返す。
 
-    PARAKEET_MODEL があればそれを優先。無ければ data/models 既定パスを使うが、
-    ファイルが実在する時だけパスを返し、不在なら "" を返す。これにより未配置時は
-    ASR を graceful に無効化し、セグメント毎の "failed to load model" を出さない
-    （従来の parakeet_model 未設定時と同じ挙動を保つ）。
+    ``env_var``（既定 PARAKEET_MODEL。qwen は QWEN_ASR_MODEL / QWEN_ASR_MMPROJ）があれば
+    それを優先（モデル名に依らず明示パスを使う）。無ければ data/models/<filename> を使うが、
+    ファイルが実在する時だけパスを返し、不在なら "" を返す。これにより未配置時は ASR を
+    graceful に無効化し、セグメント毎の "failed to load model" を出さない（従来の
+    parakeet_model 未設定時と同じ挙動を保つ）。
     """
-    env = os.environ.get("PARAKEET_MODEL")
+    env = os.environ.get(env_var) if env_var else None
     if env:
         return env
-    path = os.path.join(_DEFAULT_MODELS_DIR, "parakeet-tdt-0.6b-ja.gguf")
+    if not filename:
+        return ""
+    path = os.path.join(_DEFAULT_MODELS_DIR, filename)
     return path if os.path.exists(path) else ""
 
 
@@ -98,12 +176,32 @@ class ASRConfig:
     context_sec: float = field(default_factory=lambda: float(_VAD["context_sec"]))
 
     # --- ASR バックエンド ---
-    backend: str = "parakeet_cpp"
+    # 使用モデル（config/asr.yaml の models キー）。これに応じて backend と各パラメータを
+    # __post_init__ で派生する。ASRConfig(asr_model="qwen3-asr-1.7b") のようにコードからも切替できる。
+    asr_model: str = field(default_factory=lambda: _ASR["model"])
+    # backend は None のとき asr_model のプロファイルから派生（既定 parakeet_cpp）。
+    backend: str | None = None
+
+    # --- parakeet_cpp バックエンド（parakeet-cli） ---
     parakeet_bin: str = field(
         default_factory=lambda: os.environ.get("PARAKEET_CPP_BIN", "parakeet-cli")
     )
-    parakeet_model: str = field(default_factory=_default_parakeet_model)
-    parakeet_language: str = "ja"
+    # 以下 3 つは None のとき asr_model のプロファイルから派生する（None センチネル）。
+    # 明示指定（テストの parakeet_model="m.gguf"、language="" で --lang 省略 など）は尊重する。
+    parakeet_model: str | None = None
+    parakeet_decoder: str | None = None
+    parakeet_language: str | None = None
+
+    # --- llama_mtmd バックエンド（llama.cpp の llama-mtmd-cli・Qwen3-ASR 等） ---
+    llama_bin: str = field(
+        default_factory=lambda: os.environ.get("LLAMA_MTMD_BIN", "llama-mtmd-cli")
+    )
+    # 以下 4 つは None のとき asr_model のプロファイルから派生する（None センチネル）。
+    qwen_model: str | None = None    # 本体 GGUF パス
+    qwen_mmproj: str | None = None   # 音声エンコーダ（mmproj）GGUF パス
+    qwen_language: str | None = None  # Qwen 流儀の言語名（英語表記。空で auto）
+    qwen_prompt: str | None = None    # ASR 用プロンプト（既定空）
+
     asr_timeout_sec: float = 120.0  # 1 セグメント推論のタイムアウト
 
     # --- VAD モデル ---
@@ -113,6 +211,33 @@ class ASRConfig:
             os.path.join(_DEFAULT_MODELS_DIR, "silero_vad.onnx"),
         )
     )
+
+    def __post_init__(self) -> None:
+        """未指定（None）の ASR 設定を asr_model のプロファイルから backend 別に補完する。"""
+        profile = _asr_profile(self.asr_model)
+        if self.backend is None:
+            self.backend = profile.get("backend", "parakeet_cpp")
+
+        if self.backend == "parakeet_cpp":
+            if self.parakeet_model is None:
+                self.parakeet_model = _resolve_model_path(profile.get("filename", ""))
+            if self.parakeet_decoder is None:
+                self.parakeet_decoder = profile.get("decoder", "tdt")
+            if self.parakeet_language is None:
+                self.parakeet_language = profile.get("language", "ja")
+        elif self.backend == "llama_mtmd":
+            if self.qwen_model is None:
+                self.qwen_model = _resolve_model_path(
+                    profile.get("filename", ""), "QWEN_ASR_MODEL"
+                )
+            if self.qwen_mmproj is None:
+                self.qwen_mmproj = _resolve_model_path(
+                    profile.get("mmproj", ""), "QWEN_ASR_MMPROJ"
+                )
+            if self.qwen_language is None:
+                self.qwen_language = profile.get("language", "")
+            if self.qwen_prompt is None:
+                self.qwen_prompt = profile.get("prompt", "")
 
     # --- 派生値 ---
     @property

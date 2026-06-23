@@ -4,9 +4,19 @@
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4 class="mb-0"><i class="bi bi-broadcast me-2"></i>放映中</h4>
-  <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir()">
-    <i class="bi bi-arrow-clockwise me-1"></i>更新
-  </button>
+  <div class="d-flex align-items-center gap-2">
+    {% if asr_available %}
+    <button class="btn btn-sm asr-toggle {{ 'asr-on' if asr_enabled else 'btn-outline-secondary' }}"
+            id="asrToggleBtn" aria-pressed="{{ 'true' if asr_enabled else 'false' }}"
+            title="自動字幕（音声認識）の ON/OFF" onclick="toggleAsr()">
+      <i class="bi {{ 'bi-badge-cc-fill' if asr_enabled else 'bi-badge-cc' }}" id="asrToggleIcon"></i>
+      <span id="asrToggleLabel" class="d-none d-sm-inline ms-1">字幕 {{ 'ON' if asr_enabled else 'OFF' }}</span>
+    </button>
+    {% endif %}
+    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir()">
+      <i class="bi bi-arrow-clockwise me-1"></i>更新
+    </button>
+  </div>
 </div>
 
 <!-- 再生中バー -->
@@ -60,6 +70,58 @@ let _lastStation = null;     // 最後に再生したステーション情報（
 let _transcriptTimer = null; // 字幕ポーリングの interval
 let _transcriptStation = null;
 let _asrCursor = 0;          // 取得済みセグメント数
+let _asrEnabled = {{ 'true' if asr_enabled else 'false' }};  // 自動字幕 ON/OFF（サーバ初期値）
+
+function renderAsrToggle() {
+  const btn = document.getElementById('asrToggleBtn');
+  if (!btn) return;
+  const icon  = document.getElementById('asrToggleIcon');
+  const label = document.getElementById('asrToggleLabel');
+  btn.classList.toggle('asr-on', _asrEnabled);
+  btn.classList.toggle('btn-outline-secondary', !_asrEnabled);
+  btn.setAttribute('aria-pressed', _asrEnabled ? 'true' : 'false');
+  icon.className = 'bi ' + (_asrEnabled ? 'bi-badge-cc-fill' : 'bi-badge-cc');
+  label.textContent = '字幕 ' + (_asrEnabled ? 'ON' : 'OFF');
+}
+
+function showAsrOff() {
+  const panel = document.getElementById('transcriptPanel');
+  const body  = document.getElementById('transcriptBody');
+  if (!panel.classList.contains('d-none')) {
+    body.innerHTML = '<div class="transcript-empty">自動字幕はオフです</div>';
+  }
+}
+
+function toggleAsr() {
+  const btn = document.getElementById('asrToggleBtn');
+  const next = !_asrEnabled;
+  if (btn) btn.disabled = true;
+  fetch('/api/asr', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: next, station_id: _activeStationId }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      _asrEnabled = data.enabled;
+      renderAsrToggle();
+      // 再生中なら字幕パネルへ即反映
+      if (_activeStationId) {
+        if (_asrEnabled) startTranscript(_activeStationId);
+        else { stopTranscript(); showAsrOff(); }
+      }
+    })
+    .catch(() => {})
+    .finally(() => { if (btn) btn.disabled = false; });
+}
+
+function syncAsrState() {
+  // 別タブでの変更等に追従して初期状態を同期する。
+  fetch('/api/asr')
+    .then(r => r.json())
+    .then(data => { _asrEnabled = data.enabled; renderAsrToggle(); })
+    .catch(() => {});
+}
 
 function startTranscript(stationId) {
   // 同じ局で既にポーリング中なら何もしない
@@ -81,6 +143,11 @@ function startTranscript(stationId) {
       .then(r => r.json())
       .then(data => {
         if (myRequestId !== _streamRequestId) return;
+        if (data.enabled === false) {
+          // ユーザーがトグルで OFF にしている（利用不可とは区別）
+          if (!unavailableShown) { showAsrOff(); unavailableShown = true; }
+          return;
+        }
         if (data.available === false) {
           if (!unavailableShown) {
             body.innerHTML = '<div class="transcript-empty">音声認識は利用できません</div>';
@@ -88,6 +155,7 @@ function startTranscript(stationId) {
           }
           return;
         }
+        unavailableShown = false;  // available に戻ったら再表示できるよう解除
         if (data.segments && data.segments.length) {
           if (!hasText) { body.innerHTML = ''; hasText = true; }
           for (const s of data.segments) {
@@ -367,6 +435,6 @@ function restartStream() {
     .finally(() => playStream(id, name, title, isRecording, null));
 }
 
-document.addEventListener('DOMContentLoaded', loadOnAir);
+document.addEventListener('DOMContentLoaded', () => { loadOnAir(); syncAsrState(); });
 </script>
 {% endblock %}

@@ -17,8 +17,17 @@ def _completed(stdout=b"", stderr=b"", returncode=0):
 
 
 def _backend(bin_path="parakeet-cli", model="m.gguf", language="ja"):
-    """バイナリ解決をモックして有効化済みの backend を作る。"""
-    cfg = ASRConfig(parakeet_bin=bin_path, parakeet_model=model, parakeet_language=language)
+    """バイナリ解決をモックして有効化済みの backend を作る。
+
+    decoder 検証を config/asr.yaml の選択（デプロイ設定で変わりうる）から独立させるため、
+    asr_model は parakeet-tdt（decoder=tdt）に明示固定する。
+    """
+    cfg = ASRConfig(
+        asr_model="parakeet-tdt-0.6b-ja",
+        parakeet_bin=bin_path,
+        parakeet_model=model,
+        parakeet_language=language,
+    )
     with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/" + bin_path):
         return ParakeetCppBackend(cfg)
 
@@ -40,6 +49,26 @@ def test_command_omits_language_when_unset_but_keeps_decoder():
     cmd = backend._build_command("/tmp/a.wav")
     assert "--lang" not in cmd
     assert "--decoder" in cmd  # デコーダ明示は言語設定に依らず常に付く
+
+
+def test_command_omits_decoder_for_nemotron_rnnt_model():
+    # nemotron は RNN-T。parakeet-cli の --decoder は ctc|tdt のみ受け付ける（rnnt は無効）ため、
+    # nemotron プロファイルは decoder="" に派生し、--decoder を省略してデフォルトデコーダに任せる。
+    cfg = ASRConfig(
+        asr_model="nemotron-3.5-asr-streaming-0.6b",
+        parakeet_bin="parakeet-cli",
+        parakeet_model="m.gguf",
+    )
+    assert cfg.parakeet_decoder == ""
+    # 多言語モデルは BCP-47 ロケール（bare 'ja' ではなく ja-JP）。
+    assert cfg.parakeet_language == "ja-JP"
+    with mock.patch(
+        "asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"
+    ):
+        backend = ParakeetCppBackend(cfg)
+    cmd = backend._build_command("/tmp/a.wav")
+    assert "--decoder" not in cmd  # 省略してランタイムの arch 判定（rnnt_greedy）に委ねる
+    assert "--lang" in cmd and cmd[cmd.index("--lang") + 1] == "ja-JP"
 
 
 def test_transcribe_parses_stdout_and_cleans_tempfile():
@@ -87,6 +116,33 @@ def test_disabled_when_binary_missing_returns_empty():
         backend = ParakeetCppBackend(cfg)
     with mock.patch("subprocess.run", side_effect=AssertionError("呼ばれてはいけない")):
         assert backend.transcribe(np.zeros(16, dtype=np.int16), 16000) == ""
+
+
+# --- backend 派生・ファクトリ（asr_model → backend） ---
+
+def test_post_init_derives_backend_from_profile():
+    from asr_core.asr import build_backend
+    from asr_core.asr.llama_mtmd import LlamaMtmdBackend
+
+    # parakeet 系プロファイル → backend=parakeet_cpp
+    c1 = ASRConfig(asr_model="parakeet-tdt-0.6b-ja")
+    assert c1.backend == "parakeet_cpp"
+    assert c1.parakeet_decoder == "tdt"
+
+    # qwen3 プロファイル → backend=llama_mtmd ＋ qwen フィールド派生。
+    # GGUF 実在時はパスが解決される（未配置だと "" になるため存在をモック）。
+    with mock.patch("asr_core.config.os.path.exists", return_value=True):
+        c2 = ASRConfig(asr_model="qwen3-asr-1.7b")
+    assert c2.backend == "llama_mtmd"
+    assert c2.qwen_model.endswith("Qwen3-ASR-1.7B-Q8_0.gguf")
+    assert c2.qwen_mmproj.endswith("mmproj-Qwen3-ASR-1.7B-Q8_0.gguf")
+    assert c2.qwen_language == "Japanese"
+
+    # ファクトリは backend ごとに正しいクラスを返す
+    with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"):
+        assert isinstance(build_backend(c1), ParakeetCppBackend)
+    with mock.patch("asr_core.asr.llama_mtmd.shutil.which", return_value="/usr/bin/llama-mtmd-cli"):
+        assert isinstance(build_backend(c2), LlamaMtmdBackend)
 
 
 def test_disabled_when_model_unset_returns_empty():

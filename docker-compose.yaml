@@ -32,6 +32,8 @@ services:
       # VAD onnx と ASR gguf は MODELS_DIR(=data/models マウント) から参照する
       # （イメージ非同梱。silero_vad.onnx / parakeet-tdt-0.6b-ja.gguf を data/models に置く）。
       PARAKEET_CPP_BIN: /usr/local/bin/parakeet-cli
+      # llama_mtmd backend（Qwen3-ASR）用。本体/mmproj GGUF は MODELS_DIR から参照。
+      LLAMA_MTMD_BIN: /usr/local/bin/llama-mtmd-cli
       MODELS_DIR: /app/data/models
     command:
       - radio_scheduler_webui.py

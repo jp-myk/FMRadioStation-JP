@@ -256,6 +256,18 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* 自動字幕トグル ON 状態。REC/LIVE の赤(--accent)と混同しないよう teal にする。 */
+.asr-toggle.asr-on {
+  background: #0e8a8a;
+  border-color: #0e8a8a;
+  color: #fff;
+}
+.asr-toggle.asr-on:hover {
+  background: #0a6e6e;
+  border-color: #0a6e6e;
+  color: #fff;
+}
+
 .transcript-body {
   max-height: 28vh;
   overflow-y: auto;
