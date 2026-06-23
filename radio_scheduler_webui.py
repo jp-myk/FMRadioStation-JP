@@ -503,6 +503,10 @@ def api_on_air():
     lock = threading.Lock()
 
     def fetch_station(station):
+        # STATIONS を基準に必ず 1 局 1 エントリを返す。Radiko 番組表が取得できた局には
+        # 現在放送中の番組を載せ、取れない局（オフライン／番組の谷間）は placeholder を
+        # 返す。これにより Radiko API 不通でも全局の局名＋再生ボタンが表示される。
+        entry = None
         try:
             # 深夜0〜4時台は前日の放送日データに番組が含まれるため両日検索する
             dates_to_check = [now.date()]
@@ -513,25 +517,45 @@ def api_on_air():
                     if prog["start_time"] <= now < prog["end_time"]:
                         elapsed = (now - prog["start_time"]).total_seconds()
                         progress = int(elapsed / prog["duration"] * 100) if prog["duration"] else 0
-                        with lock:
-                            results.append({
-                                "station_id": station["id"],
-                                "station_name": station["name"],
-                                "title": prog["title"],
-                                "start_time": prog["start_time"].strftime("%Y-%m-%d %H:%M:%S"),
-                                "end_time": prog["end_time"].strftime("%Y-%m-%d %H:%M:%S"),
-                                "duration": prog["duration"],
-                                "elapsed": int(elapsed),
-                                "progress": progress,
-                                "info": prog.get("info"),
-                                "pfm": prog.get("pfm"),
-                                "is_recording": any(
-                                    r["station_id"] == station["id"] for r in IN_PROGRESS_RECORDINGS
-                                ),
-                            })
-                        return
+                        entry = {
+                            "station_id": station["id"],
+                            "station_name": station["name"],
+                            "title": prog["title"],
+                            "start_time": prog["start_time"].strftime("%Y-%m-%d %H:%M:%S"),
+                            "end_time": prog["end_time"].strftime("%Y-%m-%d %H:%M:%S"),
+                            "duration": prog["duration"],
+                            "elapsed": int(elapsed),
+                            "progress": progress,
+                            "info": prog.get("info"),
+                            "pfm": prog.get("pfm"),
+                            "has_program": True,
+                        }
+                        break
+                if entry is not None:
+                    break
         except Exception:
-            pass
+            entry = None
+
+        if entry is None:
+            entry = {
+                "station_id": station["id"],
+                "station_name": station["name"],
+                "title": "番組情報なし",
+                "start_time": None,
+                "end_time": None,
+                "duration": 0,
+                "elapsed": 0,
+                "progress": 0,
+                "info": None,
+                "pfm": None,
+                "has_program": False,
+            }
+
+        entry["is_recording"] = any(
+            r["station_id"] == station["id"] for r in IN_PROGRESS_RECORDINGS
+        )
+        with lock:
+            results.append(entry)
 
     threads = [threading.Thread(target=fetch_station, args=(s,)) for s in STATIONS]
     for t in threads:

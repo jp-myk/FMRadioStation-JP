@@ -182,6 +182,8 @@ function stopTranscript() {
 const CARD_TEMPLATE = (prog) => {
   const safeTitle   = prog.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const safeStation = prog.station_name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  // has_program=false（オフライン／番組の谷間）でも局名と再生ボタンは表示する。
+  // 番組依存（ON AIR バッジ・放送時刻・進捗バー）は番組があるときだけ描画する。
   return `
 <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
   <div class="card on-air-card h-100"
@@ -195,10 +197,11 @@ const CARD_TEMPLATE = (prog) => {
         <span class="badge bg-secondary station-badge">${prog.station_name}</span>
         <div class="d-flex gap-1">
           ${prog.is_recording ? '<span class="badge bg-danger"><i class="bi bi-record-fill"></i> REC</span>' : ''}
-          <span class="badge bg-danger on-air-badge"><i class="bi bi-broadcast-pin"></i> ON AIR</span>
+          ${prog.has_program ? '<span class="badge bg-danger on-air-badge"><i class="bi bi-broadcast-pin"></i> ON AIR</span>' : ''}
         </div>
       </div>
       <h6 class="card-title mb-1 on-air-title">${prog.title}</h6>
+      ${prog.has_program ? `
       ${prog.pfm ? `<p class="card-text text-secondary small mb-1">${prog.pfm}</p>` : ''}
       <p class="card-text text-secondary small mb-2">
         ${prog.start_time.slice(11,16)} 〜 ${prog.end_time.slice(11,16)}
@@ -206,7 +209,8 @@ const CARD_TEMPLATE = (prog) => {
       </p>
       <div class="progress on-air-progress" style="height: 3px;">
         <div class="progress-bar bg-danger" style="width: ${prog.progress}%"></div>
-      </div>
+      </div>` : `
+      <p class="card-text text-secondary small mb-2">番組情報を取得できませんでした</p>`}
     </div>
     <div class="card-footer p-2 text-end">
       <button class="btn btn-sm btn-danger play-btn" onclick="event.stopPropagation(); playStreamFromCard(this.closest('[data-station-id]'), this)">
