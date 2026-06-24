@@ -14,7 +14,7 @@
       </label>
     </div>
     {% endif %}
-    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir()">
+    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir(true)">
       <i class="bi bi-arrow-clockwise me-1"></i>更新
     </button>
   </div>
@@ -226,13 +226,14 @@ function playStreamFromCard(cardEl, btnEl) {
   playStream(d.stationId, d.stationName, d.title, d.isRecording === 'true', btnEl);
 }
 
-function loadOnAir() {
+function loadOnAir(force = false) {
   document.getElementById('onAirLoader').classList.remove('d-none');
   document.getElementById('onAirGrid').classList.add('d-none');
   document.getElementById('onAirError').classList.add('d-none');
   document.getElementById('refreshBtn').disabled = true;
 
-  fetch('/api/on-air')
+  // force=true（更新ボタン）はキャッシュを無視して番組情報を再取得する
+  fetch('/api/on-air' + (force ? '?refresh=1' : ''))
     .then(r => r.json())
     .then(data => {
       const grid = document.getElementById('onAirGrid');

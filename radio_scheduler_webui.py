@@ -497,8 +497,11 @@ def api_dashboard():
 
 
 @app.get("/api/on-air")
-def api_on_air():
+def api_on_air(refresh: int = 0):
     now = datetime.datetime.now(JST)
+    # refresh=1（「更新」ボタン）時は番組表キャッシュを無視して強制再取得し、
+    # オフライン中にキャッシュされた空結果を最新の番組情報で置き換える。
+    force = bool(refresh)
     results = []
     lock = threading.Lock()
 
@@ -513,7 +516,7 @@ def api_on_air():
             if now.hour < 5:
                 dates_to_check.append(now.date() - datetime.timedelta(days=1))
             for date in dates_to_check:
-                for prog in _radiko_client.fetch_programs_cached(station["id"], date):
+                for prog in _radiko_client.fetch_programs_cached(station["id"], date, force=force):
                     if prog["start_time"] <= now < prog["end_time"]:
                         elapsed = (now - prog["start_time"]).total_seconds()
                         progress = int(elapsed / prog["duration"] * 100) if prog["duration"] else 0

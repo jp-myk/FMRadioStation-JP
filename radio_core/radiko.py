@@ -116,15 +116,19 @@ class RadikoClient:
             return []
 
     def fetch_programs_cached(
-        self, station_id: str, date: datetime.date = None
+        self, station_id: str, date: datetime.date = None, force: bool = False
     ) -> list[dict]:
-        """fetch_programs_as_dicts のキャッシュ付きラッパー（TTL=30分）。"""
+        """fetch_programs_as_dicts のキャッシュ付きラッパー（TTL=30分）。
+
+        force=True のときは TTL に関わらず強制再取得してキャッシュを更新する
+        （オフライン時にキャッシュされた空結果を「更新」ボタンで取り直す用途）。
+        """
         if date is None:
             date = datetime.datetime.now(JST).date()
         date_str = date.strftime("%Y%m%d")
         now = datetime.datetime.now(JST)
         cache_key = (station_id, date_str)
-        if cache_key in self._cache:
+        if not force and cache_key in self._cache:
             programs, cached_at = self._cache[cache_key]
             if now - cached_at < SCHEDULE_CACHE_TTL:
                 return programs
