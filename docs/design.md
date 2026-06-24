@@ -1,13 +1,15 @@
-# radio_scheduler_webui.py — シーケンス図
+# src/fm_radio_station/apps/webui.py — シーケンス図
 
 ## 配信フロー — シーケンス図
 
 時系列での関数呼び出し順を示す。
 
+> 起動ポートは `WEBUI_PORT`（無ければ `PORT`）で指定し、未指定時は 5000 番から 5010 番まで空きを自動探索する。
+
 ```mermaid
 sequenceDiagram
     actor Browser as ブラウザ
-    participant webui as radio_scheduler_webui.py<br/>stream_audio() / api_stop_stream()
+    participant webui as apps/webui.py<br/>stream_audio() / api_stop_stream()
     participant receivers as radio_core/receivers.py<br/>StreamingFM/AMReceiver
     participant transcoder as radio_core/transcoder.py<br/>stream_fd_as_mp3()<br/>stream_growing_wav_as_mp3()
     participant ffmpeg as ffmpeg プロセス
@@ -16,7 +18,7 @@ sequenceDiagram
     participant WAV as recordings/*.wav<br/>録音中ファイル
     participant asr as asr_core<br/>ThreadedASRSession<br/>(VAD→Segmenter→parakeet.cpp)
 
-    Browser->>webui: GET /stream/{station_id}
+    Browser->>webui: GET /stream/{station_id}?asr=1<br/>（asr=0 でこのリクエストの字幕を抑止）
 
     alt タイムシフト（同局が IN_PROGRESS にある場合）
         webui->>asr: _start_asr(station_id)（失敗しても配信継続）
@@ -36,7 +38,7 @@ sequenceDiagram
         webui->>webui: _sdr_lock.acquire()
         webui->>FIFO: os.mkfifo(fifo_path)
         webui->>FIFO: os.open(O_RDONLY|O_NONBLOCK) → rfd
-        webui->>receivers: StreamingFMReceiver(freq, fifo_path)<br/>または StreamingAMReceiver(freq, fifo_path)
+        webui->>receivers: StreamingFMReceiver(freq, 2.4e6, fifo_path, desired_audio_rate=16000, gain=40)<br/>または StreamingAMReceiver(同シグネチャ)
         webui->>receivers: receiver.start()
         webui->>asr: _start_asr(station_id)（失敗しても配信継続）
         receivers->>SDR: osmosdr.source 初期化・IQ サンプル取得開始
@@ -54,12 +56,12 @@ sequenceDiagram
         end
     end
 
-    Note over asr: ThreadedASRSession 内: VAD(silero) → SpeechSegmenter<br/>→ parakeet.cpp(subprocess) → final テキストを _asr_transcript に蓄積
+    Note over asr: ThreadedASRSession（feed/poll/stop）内: VAD(silero) → SpeechSegmenter<br/>→ 既定バックエンド parakeet.cpp(subprocess) → final テキストを _asr_transcript に蓄積
 
     par 自動字幕ポーリング（再生中、別リクエストで並行）
         loop 1.5 秒間隔（onConnected〜stopStream）
             Browser->>webui: GET /api/transcript/{station_id}?since=N
-            webui-->>Browser: {available, active, segments[since:], cursor}
+            webui-->>Browser: {station_id, available, enabled, active, segments[since:], cursor}
             Browser->>Browser: 新セグメントを字幕パネルへ追記・自動スクロール
         end
     end
@@ -85,15 +87,25 @@ sequenceDiagram
 - `stream_fd_as_mp3(rfd)` が ffmpeg を Popen し、`feed()` daemon スレッドが FIFO → ffmpeg stdin → MP3 → ブラウザへ yield する
 - 先頭 3 秒は無音を ffmpeg stdin に流し、GNU Radio の起動遅延によるブラウザ側のバッファ枯渇を防ぐ
 
+#### 配信経路は 2 系統（標準 / Safari）
+
+`stream_audio()` はクライアント判定（`_needs_mp3`）で配信経路を分ける。タイムシフトの `stream_from_recording()` も同様。
+
+- **標準経路** — 上記の通り `transcoder.stream_fd_as_mp3()`（ライブ）/ `stream_growing_wav_as_mp3()`（タイムシフト）を経由。ffmpeg は `-b:a 64k`、無音プリアンブルは 3 秒。
+- **Safari など MP3 必須クライアント経路** — transcoder を介さず webui 内で直接 ffmpeg を Popen するインライン実装。エンコードは `-q:a 5`、無音プリアンブルは 2 秒。挙動（PCM タップ＝字幕、FIFO/WAV 読み出し）は標準経路と同等。
+
 ### 停止
 
 - `POST /api/stop-stream` で `receiver.stop()/wait()` → `del receiver`（`rtlsdr_close()` 発火）→ `_stop_asr()` → FIFO 削除 → `_sdr_lock.release()`
-- `generate()` の `finally`（タブ閉じ等）でも `_stop_asr()` を呼び、ASR セッションを確実に停止する
+- ライブの `generate()` の `finally`（タブ閉じ等）は `_cleanup_stream(station_id, recv_ref, fifo_path)` を呼び、`_stop_asr()` → receiver の `stop()/wait()` → `del`（`rtlsdr_close()` 発火）→ FIFO 削除 → `_sdr_lock.release()` までまとめて行う
+- タイムシフトの `generate()` の `finally` は SDR / FIFO を持たないため `_stop_asr()` のみを呼ぶ
 
 ### 自動字幕（ASR）
 
-- ライブ／タイムシフト両分岐で `_start_asr(station_id)` を呼び、`transcoder` に `on_pcm=_on_pcm` を渡す
-- `feed()` が ffmpeg に送るのと同じ PCM チャンクを `_on_pcm` がタップ → `ThreadedASRSession.feed()`（背景 asyncio ループ上の `asr_core.StreamingASRService`）へ給餌し、`poll()` 結果を `_asr_transcript` に蓄積
-- `asr_core` 内部: silero-vad → `SpeechSegmenter`（無音 700ms / 最大 18s で確定）→ parakeet.cpp（subprocess）→ final テキスト
+- ライブ／タイムシフト両分岐で `_start_asr(station_id)` を呼び、`transcoder` に `on_pcm=_on_pcm` を渡す（リクエストの `asr=0` 指定時は渡さない）
+- `feed()` が ffmpeg に送るのと同じ PCM チャンクを `_on_pcm` がタップ → `ThreadedASRSession.feed()` へ給餌し、`poll()` 結果を `_asr_transcript` に蓄積。`ThreadedASRSession` は背景 asyncio ループ上の `asr_core.StreamingASRService`（`push_audio()/get_results()/aclose()`）を駆動する同期ファサード
+- `asr_core` 内部: silero-vad → `SpeechSegmenter`（無音 300ms / 最大 18s で確定。値は `config/vad.yaml`）→ 既定バックエンド parakeet.cpp（`parakeet-tdt-0.6b-ja`、`config/asr.yaml`）→ final テキスト
+  - バックエンド／モデルは `config/asr.yaml` で切替可能（nemotron は parakeet_cpp 経由、Qwen3-ASR は llama_mtmd 経由）。既定は parakeet.cpp
 - ブラウザは `onConnected` 後に `GET /api/transcript/{station_id}?since=N` を 1.5 秒間隔でポーリングし、新セグメントを下部の字幕パネルへ追記する（配信の MP3 ストリームとは別リクエスト）
+  - レスポンスは `{station_id, available, enabled, active, segments, cursor}`。`available` は ASR セッション稼働中か、`enabled` は `ASR_ENABLED` の状態。要求局が現在の配信局と異なる場合は `active:false, segments:[], cursor:0` を返す
 - silero モデル / parakeet バイナリ未設置や依存欠如では `_start_asr` が握りつぶされ、**字幕は出ないが配信は正常**（graceful degradation、`ASR_ENABLED=0` で無効化可）
