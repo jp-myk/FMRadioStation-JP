@@ -305,6 +305,14 @@
       .finally(() => playStream(id, name, title, isRecording, null));
   }
 
+  // 固定 dock の高さ分だけ本文の下に余白を確保し、最終行のカードが dock に隠れない
+  // ようにする。dock の高さは状態（空／バーのみ／バー＋字幕）で変わるため動的に追従する。
+  function applyDockPadding() {
+    const dock = byId('playerDock');
+    const main = byId('mainContent');
+    if (dock && main) main.style.paddingBottom = dock.offsetHeight + 'px';
+  }
+
   // ---- 公開（inline onclick / 他ページ / サイドバーから呼ぶ） ----
   window.playStream = playStream;
   window.playStreamFromCard = playStreamFromCard;
@@ -313,9 +321,17 @@
   window.toggleAsr = toggleAsr;
   window.syncAsrState = syncAsrState;
 
-  // 初期化（初回・Turbo 遷移ごとにトグル状態を同期）。dock は permanent なので
-  // ハンドラの再バインドは不要。
-  document.addEventListener('turbo:load', syncAsrState);
-  if (document.readyState !== 'loading') syncAsrState();
-  else document.addEventListener('DOMContentLoaded', syncAsrState);
+  // 初期化（初回・Turbo 遷移ごとにトグル状態を同期＋本文余白を再計算）。dock は
+  // permanent なのでハンドラの再バインドは不要だが、mainContent は遷移で差し替わる。
+  function init() { syncAsrState(); applyDockPadding(); }
+  document.addEventListener('turbo:load', init);
+  if (document.readyState !== 'loading') init();
+  else document.addEventListener('DOMContentLoaded', init);
+
+  // dock の高さ変化（再生開始/停止・字幕表示・ウィンドウ幅変更）に追従。
+  if (window.ResizeObserver) {
+    const dock = byId('playerDock');
+    if (dock) new ResizeObserver(applyDockPadding).observe(dock);
+  }
+  window.addEventListener('resize', applyDockPadding);
 })();
