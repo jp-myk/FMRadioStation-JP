@@ -77,7 +77,7 @@ mkdir -p log recordings data
 echo '{"scheduled": [], "in_progress": [], "completed": []}' > data/state.json
 
 # Build the image
-docker compose build
+docker compose --profile web build  # if you want to use web-ui
 ```
 
 ### Running Locally

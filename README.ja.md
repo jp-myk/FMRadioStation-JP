@@ -77,7 +77,7 @@ mkdir -p log recordings data
 echo '{"scheduled": [], "in_progress": [], "completed": []}' > data/state.json
 
 # イメージをビルド
-docker compose build
+docker compose --profile web build  # Web UIを利用したい時
 ```
 
 ### ローカルで直接動かす場合
@@ -297,13 +297,13 @@ FMRadioStation-JP/
 │   │   └── webui.py               #   radio-webui（FastAPI Web UI）
 │   ├── radio_core/                # SDR 受信・Radiko・局定義・トランスコード
 │   ├── asr_core/                  # 音声認識（字幕）バックエンド
-│   ├── web/                       # Web UI 資産（パッケージ同梱）
+│   ├── web/                       # Web UI assets（パッケージ同梱）
 │   │   ├── templates/             #   Jinja2 テンプレート
 │   │   └── static/                #   JS/CSS
 │   └── paths.py                   # 設定/データ/キャッシュのパス解決
 ├── config/                        # 実行時 YAML（tunnels/asr/vad）
 ├── scripts/                       # モデル取得・変換／CLI ビルド（install_models.sh, convert_ja_gguf.sh, install_parakeet_cli.sh, install_llama_cli.sh）
-├── tests/                         # pytest スイート
+├── tests/                         # pytest suite
 ├── data/                          # モデル(data/models) と state.json（マウント・イメージ非同梱）
 ├── log/                           # ログ保存先
 └── recordings/                    # 録音データ保存先
