@@ -1,8 +1,8 @@
 """SpeechSegmenter の純ロジック検証（VAD/ASR 非依存・決定的）。"""
 import numpy as np
 
-from asr_core.config import ASRConfig
-from asr_core.segmenter import SpeechSegmenter
+from fm_radio_station.asr_core.config import ASRConfig
+from fm_radio_station.asr_core.segmenter import SpeechSegmenter
 
 
 def _frame(cfg, value=1000):

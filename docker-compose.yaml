@@ -7,7 +7,7 @@ services:
     environment:
       TZ: Asia/Tokyo
     command:
-      - radio_scheduler.py
+      - radio-scheduler
       - --stations
       - FMT
       - --rec-dir
@@ -36,7 +36,7 @@ services:
       LLAMA_MTMD_BIN: /usr/local/bin/llama-mtmd-cli
       MODELS_DIR: /app/data/models
     command:
-      - radio_scheduler_webui.py
+      - radio-webui
     volumes:
       - ./recordings:/app/recordings
       - ./log:/app/log

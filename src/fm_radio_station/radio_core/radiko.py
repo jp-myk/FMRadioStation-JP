@@ -7,7 +7,7 @@ import requests
 from dataclasses import dataclass
 from typing import Optional
 
-from radio_core.utils import JST, sanitize_filename
+from fm_radio_station.radio_core.utils import JST, sanitize_filename
 
 logger = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from asr_core.config import ASRConfig
+from fm_radio_station.asr_core.config import ASRConfig
 
 
 @dataclass

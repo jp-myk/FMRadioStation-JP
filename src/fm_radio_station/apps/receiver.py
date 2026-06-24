@@ -18,12 +18,12 @@ import time
 import argparse
 
 try:
-    from radio_core.receivers import FMReceiver, AMReceiver
+    from fm_radio_station.radio_core.receivers import FMReceiver, AMReceiver
 except ImportError as e:
     print(f"Error: GNU Radio or osmosdr library is not installed: {e}")
     sys.exit(1)
 
-from radio_core.stations import STATIONS, get_station
+from fm_radio_station.radio_core.stations import STATIONS, get_station
 
 
 def main():

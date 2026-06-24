@@ -89,15 +89,16 @@ ENV PATH="/root/.local/bin:${PATH}"
 # コンテナ内の作業ディレクトリを作成・設定
 WORKDIR /app
 
-# プロジェクト定義ファイル(pyproject.toml)を先にコピー
+# プロジェクト定義ファイルとソース（src レイアウト）をコピー
 COPY pyproject.toml .
 COPY README.md .
-COPY radio_core/ radio_core/
-COPY asr_core/ asr_core/
+COPY src/ src/
 
-# uvを使ってpyproject.tomlから依存関係をインストール
+# uvを使ってパッケージ(fm_radio_station)と依存関係をインストール
 # --system: 仮想環境を作らず、システムのPython環境に直接インストール (Dockerのベストプラクティス)
 # --no-cache: Dockerレイヤーのキャッシュを利用するため、uv自体のキャッシュは無効化しイメージサイズを削減
+# これで console scripts（radio-receiver / radio-scheduler / radio-webui）と
+# web テンプレ/静的アセット（package-data）も site-packages に入る。
 RUN uv pip install --system --no-cache --break-system-packages .
 
 # ASR ランタイム（parakeet-cli）をビルドステージからコピー。
@@ -107,17 +108,11 @@ COPY --from=asr-builder /out/parakeet-cli /usr/local/bin/parakeet-cli
 # llama.cpp の音声マルチモーダル CLI（Qwen3-ASR 等の llama_mtmd backend 用）。
 COPY --from=llama-builder /out/llama-mtmd-cli /usr/local/bin/llama-mtmd-cli
 
-# アプリケーションのソースコードをコンテナにコピー
-COPY radio_receiver.py .
-COPY radio_scheduler.py .
-COPY radio_scheduler_webui.py .
-COPY templates/ templates/
-COPY static/ static/
+# 設定（実行時に参照する YAML）は WORKDIR(/app) 配下に置く。
+# paths は CWD 基準で config/ を解決するため /app/config から読まれる。
 COPY config/ config/
 
 # --- Stage 5: Execution Command ---
-# コンテナ起動時にスクリプトを実行 (docker-compose 側でコマンドを上書き可能)
-ENTRYPOINT ["python3"]
-
+# console script を直接実行 (docker-compose 側でコマンドを上書き可能)
 # デフォルトのコマンド (引数がなければヘルプを表示)
-CMD ["radio_scheduler.py", "--help"]
+CMD ["radio-scheduler", "--help"]

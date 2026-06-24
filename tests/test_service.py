@@ -4,9 +4,9 @@ import time
 
 import numpy as np
 
-from asr_core.asr.backend import ASRBackend
-from asr_core.config import ASRConfig
-from asr_core.service import StreamingASRService
+from fm_radio_station.asr_core.asr.backend import ASRBackend
+from fm_radio_station.asr_core.config import ASRConfig
+from fm_radio_station.asr_core.service import StreamingASRService
 
 
 class FakeVad:

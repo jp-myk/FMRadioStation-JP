@@ -1,9 +1,9 @@
 """ThreadedASRSession の同期ファサード検証（フェイク VAD/backend 注入）。"""
 import numpy as np
 
-from asr_core.asr.backend import ASRBackend
-from asr_core.config import ASRConfig
-from asr_core.runner import ThreadedASRSession
+from fm_radio_station.asr_core.asr.backend import ASRBackend
+from fm_radio_station.asr_core.config import ASRConfig
+from fm_radio_station.asr_core.runner import ThreadedASRSession
 
 
 class FakeVad:
@@ -23,7 +23,7 @@ def _pcm(value, n):
 def _session_with_fakes():
     # service を差し替えて実モデル無しで起動できるようにする
     session = ThreadedASRSession(ASRConfig(context_sec=0.0))
-    from asr_core.service import StreamingASRService
+    from fm_radio_station.asr_core.service import StreamingASRService
 
     original = session._service  # None
     assert original is None
@@ -33,7 +33,7 @@ def _session_with_fakes():
 
     # start() は内部で StreamingASRService(self._config) を生成するため、
     # ここでは start をラップせず、生成箇所をモンキーパッチする。
-    import asr_core.runner as runner_mod
+    import fm_radio_station.asr_core.runner as runner_mod
     runner_mod.StreamingASRService = make_service  # type: ignore
     return session, runner_mod
 
@@ -59,7 +59,7 @@ def test_start_feed_poll_stop():
     finally:
         session.stop()
         # 後始末: パッチを戻す
-        from asr_core.service import StreamingASRService as RealService
+        from fm_radio_station.asr_core.service import StreamingASRService as RealService
         runner_mod.StreamingASRService = RealService
 
 

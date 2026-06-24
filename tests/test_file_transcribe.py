@@ -9,8 +9,8 @@ from unittest import mock
 
 import numpy as np
 
-from asr_core import file_transcribe as ft
-from asr_core.config import ASRConfig
+from fm_radio_station.asr_core import file_transcribe as ft
+from fm_radio_station.asr_core.config import ASRConfig
 
 
 def test_fmt_ts_webvtt_format():
@@ -49,7 +49,7 @@ def _fake_backend(available=True, transcribe=None):
 
 def test_transcribe_raises_when_backend_unavailable():
     cfg = ASRConfig(parakeet_bin="nope", parakeet_model="m.gguf")
-    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=False)):
+    with mock.patch("fm_radio_station.asr_core.file_transcribe.build_backend", _fake_backend(available=False)):
         try:
             ft.transcribe_wav_to_vtt("/tmp/x.wav", "/tmp/x.vtt", cfg)
         except RuntimeError as e:
@@ -61,16 +61,16 @@ def test_transcribe_raises_when_backend_unavailable():
 def test_available_requires_backend_and_vad_onnx():
     cfg = ASRConfig(parakeet_bin="parakeet-cli", parakeet_model="m.gguf")
     # backend 利用可 ＋ vad onnx 実在 → True
-    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=True)), \
-         mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True):
+    with mock.patch("fm_radio_station.asr_core.file_transcribe.build_backend", _fake_backend(available=True)), \
+         mock.patch("fm_radio_station.asr_core.file_transcribe.os.path.exists", return_value=True):
         assert ft.asr_batch_available(cfg) is True
     # backend 利用不可 → False
-    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=False)), \
-         mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True):
+    with mock.patch("fm_radio_station.asr_core.file_transcribe.build_backend", _fake_backend(available=False)), \
+         mock.patch("fm_radio_station.asr_core.file_transcribe.os.path.exists", return_value=True):
         assert ft.asr_batch_available(cfg) is False
     # vad onnx 不在 → False
-    with mock.patch("asr_core.file_transcribe.build_backend", _fake_backend(available=True)), \
-         mock.patch("asr_core.file_transcribe.os.path.exists", return_value=False):
+    with mock.patch("fm_radio_station.asr_core.file_transcribe.build_backend", _fake_backend(available=True)), \
+         mock.patch("fm_radio_station.asr_core.file_transcribe.os.path.exists", return_value=False):
         assert ft.asr_batch_available(cfg) is False
 
 
@@ -84,12 +84,12 @@ def test_transcribe_wav_to_vtt_end_to_end_mocked():
     with tempfile.TemporaryDirectory() as d:
         vtt = os.path.join(d, "rec.vtt")
         with mock.patch(
-            "asr_core.file_transcribe.build_backend",
+            "fm_radio_station.asr_core.file_transcribe.build_backend",
             _fake_backend(available=True, transcribe=lambda chunk, sr: next(texts)),
         ), \
-             mock.patch("asr_core.file_transcribe.os.path.exists", return_value=True), \
-             mock.patch("asr_core.file_transcribe.read_wav_int16", return_value=(samples, 16000)), \
-             mock.patch("asr_core.file_transcribe._detect_speech", return_value=regions):
+             mock.patch("fm_radio_station.asr_core.file_transcribe.os.path.exists", return_value=True), \
+             mock.patch("fm_radio_station.asr_core.file_transcribe.read_wav_int16", return_value=(samples, 16000)), \
+             mock.patch("fm_radio_station.asr_core.file_transcribe._detect_speech", return_value=regions):
             ft.transcribe_wav_to_vtt("/tmp/rec.wav", vtt, cfg)
         body = open(vtt, encoding="utf-8").read()
 

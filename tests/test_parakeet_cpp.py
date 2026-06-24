@@ -8,9 +8,9 @@ from unittest import mock
 
 import numpy as np
 
-import asr_core.config as config_module
-from asr_core.asr.parakeet_cpp import ParakeetCppBackend
-from asr_core.config import ASRConfig
+import fm_radio_station.asr_core.config as config_module
+from fm_radio_station.asr_core.asr.parakeet_cpp import ParakeetCppBackend
+from fm_radio_station.asr_core.config import ASRConfig
 
 
 def _completed(stdout=b"", stderr=b"", returncode=0):
@@ -29,7 +29,7 @@ def _backend(bin_path="parakeet-cli", model="m.gguf", language="ja"):
         parakeet_model=model,
         parakeet_language=language,
     )
-    with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/" + bin_path):
+    with mock.patch("fm_radio_station.asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/" + bin_path):
         return ParakeetCppBackend(cfg)
 
 
@@ -47,20 +47,13 @@ def test_command_uses_transcribe_model_input_decoder_and_language():
 
 def test_default_bin_uses_repo_local_build_when_present():
     """macOS ローカル実行向けに .cache の parakeet-cli を既定で拾う。"""
-    expected = config_module.os.path.abspath(
-        config_module.os.path.join(
-            config_module.os.path.dirname(config_module.__file__),
-            "..",
-            ".cache",
-            "parakeet.cpp",
-            "build",
-            "examples",
-            "cli",
-            "parakeet-cli",
-        )
+    from fm_radio_station import paths
+
+    expected = str(
+        paths.cache_dir() / "parakeet.cpp" / "build" / "examples" / "cli" / "parakeet-cli"
     )
     with mock.patch.dict(config_module.os.environ, {}, clear=True), \
-            mock.patch("asr_core.config.os.path.exists", return_value=True):
+            mock.patch("fm_radio_station.asr_core.config.os.path.exists", return_value=True):
         assert ASRConfig().parakeet_bin == expected
 
 
@@ -83,7 +76,7 @@ def test_command_omits_decoder_for_nemotron_rnnt_model():
     # 多言語モデルは BCP-47 ロケール（bare 'ja' ではなく ja-JP）。
     assert cfg.parakeet_language == "ja-JP"
     with mock.patch(
-        "asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"
+        "fm_radio_station.asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"
     ):
         backend = ParakeetCppBackend(cfg)
     cmd = backend._build_command("/tmp/a.wav")
@@ -132,7 +125,7 @@ def test_transcribe_raises_on_nonzero_exit():
 def test_disabled_when_binary_missing_returns_empty():
     """バイナリが PATH に無ければ例外を投げず空文字を返す（ログ汚染回避）。"""
     cfg = ASRConfig(parakeet_bin="no-such-bin", parakeet_model="m.gguf")
-    with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value=None):
+    with mock.patch("fm_radio_station.asr_core.asr.parakeet_cpp.shutil.which", return_value=None):
         backend = ParakeetCppBackend(cfg)
     with mock.patch("subprocess.run", side_effect=AssertionError("呼ばれてはいけない")):
         assert backend.transcribe(np.zeros(16, dtype=np.int16), 16000) == ""
@@ -141,8 +134,8 @@ def test_disabled_when_binary_missing_returns_empty():
 # --- backend 派生・ファクトリ（asr_model → backend） ---
 
 def test_post_init_derives_backend_from_profile():
-    from asr_core.asr import build_backend
-    from asr_core.asr.llama_mtmd import LlamaMtmdBackend
+    from fm_radio_station.asr_core.asr import build_backend
+    from fm_radio_station.asr_core.asr.llama_mtmd import LlamaMtmdBackend
 
     # parakeet 系プロファイル → backend=parakeet_cpp
     c1 = ASRConfig(asr_model="parakeet-tdt-0.6b-ja")
@@ -151,7 +144,7 @@ def test_post_init_derives_backend_from_profile():
 
     # qwen3 プロファイル → backend=llama_mtmd ＋ qwen フィールド派生。
     # GGUF 実在時はパスが解決される（未配置だと "" になるため存在をモック）。
-    with mock.patch("asr_core.config.os.path.exists", return_value=True):
+    with mock.patch("fm_radio_station.asr_core.config.os.path.exists", return_value=True):
         c2 = ASRConfig(asr_model="qwen3-asr-1.7b")
     assert c2.backend == "llama_mtmd"
     assert c2.qwen_model.endswith("Qwen3-ASR-1.7B-Q8_0.gguf")
@@ -159,16 +152,16 @@ def test_post_init_derives_backend_from_profile():
     assert c2.qwen_language == "Japanese"
 
     # ファクトリは backend ごとに正しいクラスを返す
-    with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"):
+    with mock.patch("fm_radio_station.asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"):
         assert isinstance(build_backend(c1), ParakeetCppBackend)
-    with mock.patch("asr_core.asr.llama_mtmd.shutil.which", return_value="/usr/bin/llama-mtmd-cli"):
+    with mock.patch("fm_radio_station.asr_core.asr.llama_mtmd.shutil.which", return_value="/usr/bin/llama-mtmd-cli"):
         assert isinstance(build_backend(c2), LlamaMtmdBackend)
 
 
 def test_disabled_when_model_unset_returns_empty():
     """GGUF 未設定でも例外を投げず空文字を返す。"""
     cfg = ASRConfig(parakeet_bin="parakeet-cli", parakeet_model="")
-    with mock.patch("asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"):
+    with mock.patch("fm_radio_station.asr_core.asr.parakeet_cpp.shutil.which", return_value="/usr/bin/parakeet-cli"):
         backend = ParakeetCppBackend(cfg)
     with mock.patch("subprocess.run", side_effect=AssertionError("呼ばれてはいけない")):
         assert backend.transcribe(np.zeros(16, dtype=np.int16), 16000) == ""

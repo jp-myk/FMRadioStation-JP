@@ -8,8 +8,8 @@ from unittest import mock
 
 import numpy as np
 
-from asr_core.asr.llama_mtmd import LlamaMtmdBackend
-from asr_core.config import ASRConfig
+from fm_radio_station.asr_core.asr.llama_mtmd import LlamaMtmdBackend
+from fm_radio_station.asr_core.config import ASRConfig
 
 
 def _completed(stdout=b"", stderr=b"", returncode=0):
@@ -27,7 +27,7 @@ def _backend(bin_path="llama-mtmd-cli", model="m.gguf", mmproj="mm.gguf",
         qwen_language=language,
         qwen_prompt=prompt,
     )
-    with mock.patch("asr_core.asr.llama_mtmd.shutil.which", return_value="/usr/bin/" + bin_path):
+    with mock.patch("fm_radio_station.asr_core.asr.llama_mtmd.shutil.which", return_value="/usr/bin/" + bin_path):
         return LlamaMtmdBackend(cfg)
 
 
@@ -50,7 +50,7 @@ def test_command_uses_explicit_prompt():
 
 def test_disabled_when_bin_missing():
     cfg = ASRConfig(asr_model="qwen3-asr-1.7b", qwen_model="m.gguf", qwen_mmproj="mm.gguf")
-    with mock.patch("asr_core.asr.llama_mtmd.shutil.which", return_value=None):
+    with mock.patch("fm_radio_station.asr_core.asr.llama_mtmd.shutil.which", return_value=None):
         backend = LlamaMtmdBackend(cfg)
     assert backend.available is False
     assert backend.transcribe(np.zeros(16000, dtype=np.int16), 16000) == ""
@@ -61,7 +61,7 @@ def test_disabled_when_mmproj_missing():
         asr_model="qwen3-asr-1.7b", llama_bin="llama-mtmd-cli",
         qwen_model="m.gguf", qwen_mmproj="",
     )
-    with mock.patch("asr_core.asr.llama_mtmd.shutil.which", return_value="/usr/bin/llama-mtmd-cli"):
+    with mock.patch("fm_radio_station.asr_core.asr.llama_mtmd.shutil.which", return_value="/usr/bin/llama-mtmd-cli"):
         backend = LlamaMtmdBackend(cfg)
     assert backend.available is False  # mmproj 必須
 
@@ -74,8 +74,8 @@ def test_transcribe_parses_stdout_and_cleans_tempfile():
         captured["cmd"] = cmd
         return _completed(stdout="こんにちは 世界\n".encode("utf-8"))
 
-    with mock.patch("asr_core.asr.llama_mtmd.subprocess.run", side_effect=fake_run), \
-         mock.patch("asr_core.asr.llama_mtmd.write_wav_file"):
+    with mock.patch("fm_radio_station.asr_core.asr.llama_mtmd.subprocess.run", side_effect=fake_run), \
+         mock.patch("fm_radio_station.asr_core.asr.llama_mtmd.write_wav_file"):
         text = backend.transcribe(np.zeros(16000, dtype=np.int16), 16000)
     assert text == "こんにちは 世界"
     assert "--audio" in captured["cmd"]

@@ -1,6 +1,6 @@
 import numpy as np
 
-from asr_core.wav_io import (
+from fm_radio_station.asr_core.wav_io import (
     pcm_bytes_to_int16,
     read_wav_int16,
     write_wav_bytes,

@@ -15,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover - 依存未導入環境向け
     ort = None
 
-from asr_core.config import ASRConfig
+from fm_radio_station.asr_core.config import ASRConfig
 
 
 class SileroVad:

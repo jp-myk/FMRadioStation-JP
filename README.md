@@ -68,13 +68,13 @@ If `Docker Compose requires buildx plugin to be installed` appears, install/enab
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd radio_receiver
+cd FMRadioStation-JP
 
-# Create log and recording directories
-mkdir -p log recordings
+# Create log, recording and data directories
+mkdir -p log recordings data
 
-# Initialize state.json (required for Web UI)
-echo '{"scheduled": [], "in_progress": [], "completed": []}' > state.json
+# Initialize state.json (required for Web UI; mounted at /app/data)
+echo '{"scheduled": [], "in_progress": [], "completed": []}' > data/state.json
 
 # Build the image
 docker compose build
@@ -100,16 +100,16 @@ uv sync
 
 # Create runtime directories
 mkdir -p log recordings data
-printf '{"scheduled": [], "in_progress": [], "completed": []}\n' > state.json
+printf '{"scheduled": [], "in_progress": [], "completed": []}\n' > data/state.json
 
 # Start the Web UI
-uv run python radio_scheduler_webui.py
+uv run radio-webui
 ```
 
 Open the URL printed by Uvicorn, normally `http://localhost:5000`. To force a port, set `WEBUI_PORT`, for example:
 
 ```bash
-WEBUI_PORT=5002 uv run python radio_scheduler_webui.py
+WEBUI_PORT=5002 uv run radio-webui
 ```
 
 #### macOS
@@ -127,29 +127,29 @@ uv sync
 
 # Create runtime directories
 mkdir -p log recordings data
-printf '{"scheduled": [], "in_progress": [], "completed": []}\n' > state.json
+printf '{"scheduled": [], "in_progress": [], "completed": []}\n' > data/state.json
 
 # Start the Web UI
-uv run python radio_scheduler_webui.py
+uv run radio-webui
 ```
 
 On macOS, port 5000 is sometimes already used by AirPlay Receiver / Control Center. The Web UI automatically tries the next free port up to 5010; check the Uvicorn output and open that URL. You can also choose the port explicitly:
 
 ```bash
-WEBUI_PORT=5002 uv run python radio_scheduler_webui.py
+WEBUI_PORT=5002 uv run radio-webui
 ```
 
 To run the CLI scheduler locally instead of the Web UI:
 
 ```bash
-uv run python radio_scheduler.py --stations FMT,J-WAVE --rec-dir recordings --log-dir log
+uv run radio-scheduler --stations FMT,J-WAVE --rec-dir recordings --log-dir log
 ```
 
-To run a direct SDR recording check with `radio_receiver.py` on macOS:
+To run a direct SDR recording check with `radio-receiver` on macOS:
 
 ```bash
 # Example: record TOKYO FM for 10 seconds
-uv run python radio_receiver.py \
+uv run radio-receiver \
   --mode fm \
   --station FMT \
   --duration 10 \
@@ -160,7 +160,7 @@ uv run python radio_receiver.py \
   --gain 40
 ```
 
-`radio_receiver.py` accepts either `--station` or `--freq`; for example, `--freq 80e6` tunes 80.0 MHz directly. Run it from the repository root so `config/tunnels.yaml` can be found. If `uv: file not found` (or `uv: command not found`) appears after installing uv, open a new shell or add uv to your PATH, for example:
+`radio-receiver` accepts either `--station` or `--freq`; for example, `--freq 80e6` tunes 80.0 MHz directly. Run it from the repository root so `config/tunnels.yaml` can be found. If `uv: file not found` (or `uv: command not found`) appears after installing uv, open a new shell or add uv to your PATH, for example:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -233,7 +233,7 @@ After starting, open `http://localhost:5001` in your browser.
 To run locally:
 
 ```bash
-uv run python radio_scheduler_webui.py
+uv run radio-webui
 ```
 
 ### CLI Scheduler Mode (Headless automatic recording)
@@ -251,7 +251,7 @@ The default recording station is `FMT`. To change it, edit the `command` section
 To run locally:
 
 ```bash
-uv run python radio_scheduler.py --stations FMT,J-WAVE --rec-dir recordings --log-dir log
+uv run radio-scheduler --stations FMT,J-WAVE --rec-dir recordings --log-dir log
 ```
 
 ### Viewing Logs
@@ -268,7 +268,7 @@ tail -f log/*.log
 
 ## CLI Options
 
-Options available for `radio_scheduler.py`:
+Options available for `radio-scheduler`:
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -286,17 +286,27 @@ Options available for `radio_scheduler.py`:
 ## Directory Structure
 
 ```
-radio_receiver/
-├── docker-compose.yaml        # Docker Compose configuration
-├── DockerFile                 # Docker image definition
-├── pyproject.toml             # Python dependencies
-├── radio_scheduler.py         # CLI scheduler
-├── radio_scheduler_webui.py   # Flask Web UI
-├── templates/                 # Web UI templates
-├── static/                    # Web UI static files
-├── state.json                 # Reservation state file (Web UI)
-├── scripts/                   # Model/CLI install helpers (install_models.sh, convert_ja_gguf.sh, install_parakeet_cli.sh, install_llama_cli.sh)
-├── data/models/               # VAD/ASR models (mounted, not baked into the image)
-├── log/                       # Log output directory
-└── recordings/                # Recording output directory
+FMRadioStation-JP/
+├── docker-compose.yaml            # Docker Compose configuration
+├── DockerFile                     # Docker image definition
+├── pyproject.toml                 # Package metadata, deps, console scripts
+├── src/fm_radio_station/          # Python package (installed via uv/pip)
+│   ├── apps/                      # Entry points (console scripts)
+│   │   ├── receiver.py            #   radio-receiver
+│   │   ├── scheduler.py           #   radio-scheduler (CLI scheduler)
+│   │   └── webui.py               #   radio-webui (FastAPI Web UI)
+│   ├── radio_core/                # SDR receivers, Radiko, stations, transcode
+│   ├── asr_core/                  # Speech recognition (subtitles) backends
+│   ├── web/                       # Web UI assets (bundled with the package)
+│   │   ├── templates/             #   Jinja2 templates
+│   │   └── static/                #   JS/CSS
+│   └── paths.py                   # Config/data/cache path resolution
+├── config/                        # Runtime YAML (tunnels/asr/vad)
+├── scripts/                       # Model/CLI install helpers (install_models.sh, convert_ja_gguf.sh, install_parakeet_cli.sh, install_llama_cli.sh)
+├── tests/                         # pytest suite
+├── data/                          # Models (data/models) + state.json (mounted, not baked in)
+├── log/                           # Log output directory
+└── recordings/                    # Recording output directory
 ```
+
+Run the apps as console scripts after `uv sync` (or `uv pip install .`): `radio-webui`, `radio-scheduler`, `radio-receiver` (e.g. `uv run radio-webui`).

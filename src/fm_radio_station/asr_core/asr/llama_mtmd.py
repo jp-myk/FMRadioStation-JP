@@ -21,9 +21,9 @@ import tempfile
 
 import numpy as np
 
-from asr_core.asr.backend import ASRBackend
-from asr_core.config import ASRConfig
-from asr_core.wav_io import write_wav_file
+from fm_radio_station.asr_core.asr.backend import ASRBackend
+from fm_radio_station.asr_core.config import ASRConfig
+from fm_radio_station.asr_core.wav_io import write_wav_file
 
 # llama.cpp が stdout に混ぜうる進捗/ログ行（行頭タイムスタンプや "llama_" 等の診断）を除去する。
 _TIMESTAMP_PREFIX = re.compile(r"^\s*\[[0-9:.\s>\-]+\]\s*")

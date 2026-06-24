@@ -1,8 +1,8 @@
 [project]
-name = "radio-recorder"
+name = "fm_radio_station"
 version = "0.1.0"
 description = "A script to schedule radio recordings using GNU Radio."
-authors = [{name = "Your Name", email = "you@example.com"}]
+authors = [{name = "Jumpei Miyake", email = "jumpei.miyake@gmail.com"}]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,6 +17,11 @@ dependencies = [
     "pyyaml>=6",
 ]
 
+[project.scripts]
+radio-receiver = "fm_radio_station.apps.receiver:main"
+radio-scheduler = "fm_radio_station.apps.scheduler:main"
+radio-webui = "fm_radio_station.apps.webui:main"
+
 [tool.uv]
 python-preference = "system"
 python-downloads = "never"
@@ -25,5 +30,8 @@ python-downloads = "never"
 requires = ["setuptools>=42"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["radio_core", "asr_core", "asr_core.asr"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+fm_radio_station = ["web/templates/*.html", "web/static/*"]

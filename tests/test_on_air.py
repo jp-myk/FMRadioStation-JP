@@ -10,11 +10,11 @@ import pytest
 # WebUI は GNU Radio/osmosdr 等に依存し、未導入環境では import 時に exit(1) する。
 # その場合はテストをスキップする（ASR と同様に環境差を許容）。
 try:
-    import radio_scheduler_webui as webui
+    from fm_radio_station.apps import webui
 except BaseException as e:  # SystemExit を含む
-    pytest.skip(f"radio_scheduler_webui unavailable: {e}", allow_module_level=True)
+    pytest.skip(f"fm_radio_station.apps.webui unavailable: {e}", allow_module_level=True)
 
-from radio_core.utils import JST
+from fm_radio_station.radio_core.utils import JST
 
 
 def test_on_air_offline_returns_placeholder_for_all_stations(monkeypatch):
@@ -74,7 +74,7 @@ def test_on_air_marks_currently_airing_program(monkeypatch):
 
 def test_fetch_programs_cached_force_bypasses_cache(monkeypatch):
     """force=True はキャッシュ（空結果含む）を無視して再取得する。"""
-    from radio_core.radiko import RadikoClient
+    from fm_radio_station.radio_core.radiko import RadikoClient
 
     client = RadikoClient()
     calls = {"n": 0}

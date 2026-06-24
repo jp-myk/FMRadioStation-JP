@@ -5,3 +5,14 @@ data/models/
 
 # GGUF 変換ヘルパ（scripts/convert_ja_gguf.sh）の作業用 clone / venv
 .cache/
+
+# Python のビルド/パッケージング成果物
+__pycache__/
+*.py[cod]
+*.egg-info/
+/dist/
+/build/
+.venv/
+
+# WebUI のランタイム状態（data/state.json を使う）
+state.json

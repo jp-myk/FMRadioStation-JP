@@ -18,18 +18,19 @@ from fastapi.templating import Jinja2Templates
 import uvicorn
 
 try:
-    from radio_core.receivers import FMReceiver, AMReceiver, StreamingFMReceiver, StreamingAMReceiver
+    from fm_radio_station.radio_core.receivers import FMReceiver, AMReceiver, StreamingFMReceiver, StreamingAMReceiver
 except ImportError as e:
     print(f"Error: GNU Radio or osmosdr library is not installed: {e}")
     exit(1)
 
-from radio_core.stations import STATIONS, get_station
-from radio_core.radiko import RadikoClient
-from radio_core.utils import sanitize_filename, JST, convert_datetime
-from radio_core.transcoder import stream_fd_as_mp3, stream_growing_wav_as_mp3
+from fm_radio_station.radio_core.stations import STATIONS, get_station
+from fm_radio_station.radio_core.radiko import RadikoClient
+from fm_radio_station.radio_core.utils import sanitize_filename, JST, convert_datetime
+from fm_radio_station.radio_core.transcoder import stream_fd_as_mp3, stream_growing_wav_as_mp3
+from fm_radio_station import paths
 
 try:
-    from asr_core import (
+    from fm_radio_station.asr_core import (
         ThreadedASRSession, ASRConfig,
         transcribe_wav_to_vtt, asr_batch_available,
     )
@@ -42,17 +43,22 @@ except Exception as e:  # numpy 等の依存が無い環境でも WebUI は動�
     _ASR_AVAILABLE = False
     print(f"asr_core unavailable, transcription disabled: {e}")
 
+# テンプレート/静的アセットはパッケージ同梱（cwd 非依存）。状態・録音先は
+# 実行ディレクトリ基準＋env 上書きで解決する（fm_radio_station.paths に集約）。
+_WEB_DIR = paths.web_dir()
+
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
+templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 templates.env.filters['basename'] = os.path.basename
 
 # ------------------------------
 # ＜状態管理＞
-STATE_FILE = "/app/data/state.json"
-RECORDINGS_DIR = "./recordings"
+STATE_FILE = str(paths.state_file())
+RECORDINGS_DIR = str(paths.recordings_dir())
 if not os.path.exists(RECORDINGS_DIR):
     os.makedirs(RECORDINGS_DIR)
+os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 
 _state_lock = threading.Lock()
 _radiko_client = RadikoClient()
@@ -1098,6 +1104,11 @@ def _select_webui_port(default_port: int = 5000) -> int:
 
 
 # ------------------------------
-if __name__ == "__main__":
+def main() -> None:
+    """console script エントリ（radio-webui）。"""
     reschedule_pending()
     uvicorn.run(app, host="0.0.0.0", port=_select_webui_port())
+
+
+if __name__ == "__main__":
+    main()

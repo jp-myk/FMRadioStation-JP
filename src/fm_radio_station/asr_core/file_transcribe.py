@@ -15,10 +15,10 @@ import os
 
 import numpy as np
 
-from asr_core.asr import build_backend
-from asr_core.config import ASRConfig
-from asr_core.vad import SileroVad, get_speech_timestamps
-from asr_core.wav_io import read_wav_int16
+from fm_radio_station.asr_core.asr import build_backend
+from fm_radio_station.asr_core.config import ASRConfig
+from fm_radio_station.asr_core.vad import SileroVad, get_speech_timestamps
+from fm_radio_station.asr_core.wav_io import read_wav_int16
 
 
 def asr_batch_available(config: ASRConfig | None = None) -> bool:

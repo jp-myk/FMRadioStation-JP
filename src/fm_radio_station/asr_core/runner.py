@@ -16,9 +16,9 @@
 import asyncio
 import threading
 
-from asr_core.config import ASRConfig
-from asr_core.results import ASRResult
-from asr_core.service import StreamingASRService
+from fm_radio_station.asr_core.config import ASRConfig
+from fm_radio_station.asr_core.results import ASRResult
+from fm_radio_station.asr_core.service import StreamingASRService
 
 
 class ThreadedASRSession:

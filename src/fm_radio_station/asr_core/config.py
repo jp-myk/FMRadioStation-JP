@@ -10,11 +10,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
-# 本モジュール（asr_core/config.py）から見た既定の VAD 設定ファイル。
-# .. はリポジトリ直下（コンテナでは /app）の config/ を指す。
-_DEFAULT_VAD_CONFIG = os.path.join(
-    os.path.dirname(__file__), "..", "config", "vad.yaml"
-)
+from fm_radio_station import paths
 
 # config/vad.yaml が無い／読めないときの組み込み既定値（キーは vad.yaml と対応）。
 _VAD_DEFAULTS = {
@@ -34,7 +30,7 @@ def _load_vad_config() -> dict:
     ファイルが無い／壊れている場合は ``_VAD_DEFAULTS`` にフォールバックする
     （VAD 設定は必須ではなく、欠けても既定値で動かしたいため）。
     """
-    path = os.environ.get("VAD_CONFIG", _DEFAULT_VAD_CONFIG)
+    path = paths.vad_config_file()
     cfg = dict(_VAD_DEFAULTS)
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -48,10 +44,6 @@ def _load_vad_config() -> dict:
 _VAD = _load_vad_config()
 
 
-# 本モジュールから見た既定の ASR 設定ファイル（config/asr.yaml）。
-_DEFAULT_ASR_CONFIG = os.path.join(
-    os.path.dirname(__file__), "..", "config", "asr.yaml"
-)
 
 # config/asr.yaml が無い／読めないときの組み込み既定値（キーは asr.yaml と対応）。
 # model: 使用モデル名（models のキー）。models: モデルごとのプロファイル。
@@ -101,7 +93,7 @@ def _load_asr_config() -> dict:
     （VAD 設定と同じ方針）。``models`` はプロファイル単位でマージし、既定の 2 モデルを
     残したまま yaml 側の上書き・追加を反映する。
     """
-    path = os.environ.get("ASR_CONFIG", _DEFAULT_ASR_CONFIG)
+    path = paths.asr_config_file()
     cfg = copy.deepcopy(_ASR_DEFAULTS)
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -132,11 +124,7 @@ def _asr_profile(model: str) -> dict:
 # イメージに焼かず ./data をマウントして供給する設計のため、小さな VAD onnx も
 # 同じ data/models に揃える（保存先の一貫性）。MODELS_DIR で一括変更でき、
 # 個別パスは SILERO_VAD_ONNX / PARAKEET_MODEL で上書きできる。
-_DEFAULT_MODELS_DIR = os.path.abspath(
-    os.environ.get(
-        "MODELS_DIR", os.path.join(os.path.dirname(__file__), "..", "data", "models")
-    )
-)
+_DEFAULT_MODELS_DIR = str(paths.models_dir())
 
 
 def _resolve_model_path(filename: str, env_var: str = "PARAKEET_MODEL") -> str:
@@ -169,9 +157,8 @@ def _default_parakeet_bin() -> str:
     env = os.environ.get("PARAKEET_CPP_BIN")
     if env:
         return env
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    local_bin = os.path.join(
-        repo_root, ".cache", "parakeet.cpp", "build", "examples", "cli", "parakeet-cli"
+    local_bin = str(
+        paths.cache_dir() / "parakeet.cpp" / "build" / "examples" / "cli" / "parakeet-cli"
     )
     return local_bin if os.path.exists(local_bin) else "parakeet-cli"
 
@@ -190,10 +177,7 @@ def _default_llama_bin() -> str:
     env = os.environ.get("LLAMA_MTMD_BIN")
     if env:
         return env
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    local_bin = os.path.join(
-        repo_root, ".cache", "llama.cpp", "build", "bin", "llama-mtmd-cli"
-    )
+    local_bin = str(paths.cache_dir() / "llama.cpp" / "build" / "bin" / "llama-mtmd-cli")
     return local_bin if os.path.exists(local_bin) else "llama-mtmd-cli"
 
 

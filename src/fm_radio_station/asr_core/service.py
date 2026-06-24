@@ -25,12 +25,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from asr_core.asr import ASRBackend, build_backend
-from asr_core.config import ASRConfig
-from asr_core.results import ASRResult
-from asr_core.segmenter import SpeechSegment, SpeechSegmenter
-from asr_core.vad import SileroVad
-from asr_core.wav_io import pcm_bytes_to_int16
+from fm_radio_station.asr_core.asr import ASRBackend, build_backend
+from fm_radio_station.asr_core.config import ASRConfig
+from fm_radio_station.asr_core.results import ASRResult
+from fm_radio_station.asr_core.segmenter import SpeechSegment, SpeechSegmenter
+from fm_radio_station.asr_core.vad import SileroVad
+from fm_radio_station.asr_core.wav_io import pcm_bytes_to_int16
 
 
 class StreamingASRService:
