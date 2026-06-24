@@ -221,15 +221,21 @@ body {
   50%       { border-top-color: rgba(229, 57, 53, 0.3); }
 }
 
-.now-playing-bar {
+/* ---- Player dock (transcript + now-playing bar) ----------- */
+/* 字幕パネルと再生バーを 1 つの固定コンテナに縦積みし、隙間なく密着させる。
+   全ページ常駐（layout.html, data-turbo-permanent）でページ遷移をまたいで保持する。 */
+.player-dock {
   position: fixed;
   bottom: 0;
   left: var(--sidebar-width);
   right: 0;
+  z-index: 800;
+}
+
+.now-playing-bar {
   background: #1a1a1a;
   border-top: 2px solid var(--accent);
   padding: 0.6rem 1.25rem;
-  z-index: 800;
   box-shadow: 0 -2px 12px rgba(0,0,0,0.4);
 }
 
@@ -238,14 +244,10 @@ body {
 }
 
 /* ---- Transcript (auto subtitle) --------------------------- */
+/* dock 内で再生バーの直上に積む通常ブロック（個別の固定配置はしない＝隙間ゼロ）。 */
 .transcript-panel {
-  position: fixed;
-  bottom: 58px;            /* now-playing-bar の上に重ねる */
-  left: var(--sidebar-width);
-  right: 0;
   background: #161616;
   border-top: 1px solid var(--border);
-  z-index: 790;
   box-shadow: 0 -2px 12px rgba(0,0,0,0.4);
 }
 
@@ -254,6 +256,21 @@ body {
   font-size: 0.8rem;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
+}
+
+/* 字幕 ON/OFF トグルは操作対象なので少し大きく・見やすくする。 */
+#asrToggleWrap {
+  font-size: 0.95rem;
+  padding-left: 3em;            /* 拡大したスイッチ分の余白 */
+}
+#asrToggleWrap .form-check-input {
+  width: 2.6em;
+  height: 1.3em;
+  margin-left: -3em;
+  cursor: pointer;
+}
+#asrToggleWrap .form-check-label {
+  cursor: pointer;
 }
 
 /* 自動字幕トグル ON 状態。REC/LIVE の赤(--accent)と混同しないよう teal にする。 */
@@ -429,10 +446,7 @@ body {
   .main-content {
     margin-left: 0;
   }
-  .now-playing-bar {
-    left: 0;
-  }
-  .transcript-panel {
+  .player-dock {
     left: 0;
   }
 }

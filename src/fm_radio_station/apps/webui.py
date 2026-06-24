@@ -52,6 +52,21 @@ app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="stat
 templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 templates.env.filters['basename'] = os.path.basename
 
+
+def _static_version(filename: str) -> str:
+    """静的アセットのキャッシュバスティング用バージョン（ファイル mtime）。
+
+    `<link>/<script>` の URL に `?v=` として付け、ファイル更新時に必ず再取得させる
+    （ブラウザ/Turbo のキャッシュで古い CSS/JS が残るのを防ぐ）。
+    """
+    try:
+        return str(int((_WEB_DIR / "static" / filename).stat().st_mtime))
+    except OSError:
+        return "0"
+
+
+templates.env.globals["static_v"] = _static_version
+
 # ------------------------------
 # ＜状態管理＞
 STATE_FILE = str(paths.state_file())

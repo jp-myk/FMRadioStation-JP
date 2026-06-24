@@ -272,7 +272,9 @@ function loadSubtitles(block) {
     .catch(() => { body.innerHTML = '<div class="transcript-empty">字幕の読み込みに失敗しました</div>'; });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// この <script> は body 末尾にあり、初回・Turbo 遷移ごとに再評価される。DOMContentLoaded は
+// Turbo 遷移では発火しないため、直接呼び出して字幕ブロックを初期化する。
+(function initSubtitleBlocks() {
   document.querySelectorAll('.subtitle-block').forEach(block => {
     if (block.dataset.hasVtt === '1') {
       controlsDone(block);
@@ -284,6 +286,6 @@ document.addEventListener('DOMContentLoaded', () => {
         '<span class="transcript-empty">字幕生成は利用できません</span>';
     }
   });
-});
+})();
 </script>
 {% endblock %}

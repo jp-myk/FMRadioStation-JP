@@ -5,45 +5,10 @@
 <div class="page-header d-flex align-items-center justify-content-between">
   <h4 class="mb-0"><i class="bi bi-broadcast me-2"></i>放映中</h4>
   <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-    {% if asr_available %}
-    <div class="form-check form-switch mb-0 small text-secondary" title="自動字幕（音声認識）の ON/OFF">
-      <input class="form-check-input" type="checkbox" role="switch" id="asrToggle"
-             {% if asr_enabled %}checked{% endif %} onchange="toggleAsr(this.checked)">
-      <label class="form-check-label" for="asrToggle">
-        自動字幕 <span id="asrToggleLabel">{{ 'ON' if asr_enabled else 'OFF' }}</span>
-      </label>
-    </div>
-    {% endif %}
     <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir(true)">
       <i class="bi bi-arrow-clockwise me-1"></i>更新
     </button>
   </div>
-</div>
-
-<!-- 再生中バー -->
-<div id="nowPlayingBar" class="now-playing-bar d-none">
-  <div class="d-flex align-items-center gap-2 flex-wrap">
-    <span id="nowPlayingBadge" class="badge bg-danger">
-      <i class="bi bi-broadcast-pin"></i> LIVE
-    </span>
-    <span id="nowPlayingTitle" class="fw-bold text-white"></span>
-    <span id="nowPlayingStation" class="text-secondary small"></span>
-    <div id="connectingSpinner" class="spinner-border spinner-border-sm text-light d-none" role="status"></div>
-    <span id="connectingStatus" class="text-secondary small"></span>
-    <div id="streamError" class="d-none"></div>
-    <button class="btn btn-sm btn-outline-danger ms-auto" id="stopBtn" onclick="stopStream()">
-      <i class="bi bi-stop-fill me-1"></i>停止
-    </button>
-  </div>
-  <audio id="streamAudio" style="display:none;"></audio>
-</div>
-
-<!-- 自動字幕パネル -->
-<div id="transcriptPanel" class="transcript-panel d-none">
-  <div class="transcript-header">
-    <i class="bi bi-card-text me-1"></i>自動字幕<span class="badge bg-secondary ms-2">ベータ</span>
-  </div>
-  <div id="transcriptBody" class="transcript-body"></div>
 </div>
 
 <!-- ローディング -->
@@ -65,126 +30,15 @@
 
 {% block scripts %}
 <script>
-window.ASR_LIVE_AVAILABLE = {{ 'true' if asr_available else 'false' }};
-let _streamRequestId = 0;   // 各 playStream 呼び出しに一意なID
-let _activeStationId = null; // 現在アクティブなステーション（接続中含む）
-let _lastStation = null;     // 最後に再生したステーション情報（再起動用）
-let _transcriptTimer = null; // 字幕ポーリングの interval
-let _transcriptStation = null;
-let _asrCursor = 0;          // 取得済みセグメント数
-let _asrEnabled = {{ 'true' if asr_enabled else 'false' }};  // 自動字幕 ON/OFF（サーバ初期値）
-
-function renderAsrToggle() {
-  const toggle = document.getElementById('asrToggle');
-  const label = document.getElementById('asrToggleLabel');
-  if (!toggle || !label) return;
-  toggle.checked = _asrEnabled;
-  label.textContent = _asrEnabled ? 'ON' : 'OFF';
-  label.className = _asrEnabled ? 'text-info' : 'text-secondary';
-}
-
-function showAsrOff() {
-  const panel = document.getElementById('transcriptPanel');
-  const body  = document.getElementById('transcriptBody');
-  if (!panel.classList.contains('d-none')) {
-    body.innerHTML = '<div class="transcript-empty">自動字幕はオフです</div>';
-  }
-}
-
-function toggleAsr(enabled) {
-  const toggle = document.getElementById('asrToggle');
-  const next = typeof enabled === 'boolean' ? enabled : !_asrEnabled;
-  if (toggle) toggle.disabled = true;
-  fetch('/api/asr', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: next, station_id: _activeStationId }),
-  })
-    .then(r => r.json())
-    .then(data => {
-      _asrEnabled = data.enabled;
-      renderAsrToggle();
-      // 再生中なら字幕パネルへ即反映
-      if (_activeStationId) {
-        if (_asrEnabled) startTranscript(_activeStationId);
-        else { stopTranscript(); showAsrOff(); }
-      }
-    })
-    .catch(() => { renderAsrToggle(); })
-    .finally(() => { if (toggle) toggle.disabled = false; });
-}
-
-function syncAsrState() {
-  // 別タブでの変更等に追従して初期状態を同期する。
-  fetch('/api/asr')
-    .then(r => r.json())
-    .then(data => { _asrEnabled = data.enabled; renderAsrToggle(); })
-    .catch(() => {});
-}
-
-function startTranscript(stationId) {
-  if (!_asrEnabled || !window.ASR_LIVE_AVAILABLE) return;
-  // 同じ局で既にポーリング中なら何もしない
-  if (_transcriptTimer && _transcriptStation === stationId) return;
-  stopTranscript();
-  _transcriptStation = stationId;
-  _asrCursor = 0;
-  const panel = document.getElementById('transcriptPanel');
-  const body  = document.getElementById('transcriptBody');
-  body.innerHTML = '<div class="transcript-empty">認識待機中...</div>';
-  panel.classList.remove('d-none');
-  const myRequestId = _streamRequestId;
-  let unavailableShown = false;
-  let hasText = false;
-
-  const poll = () => {
-    if (myRequestId !== _streamRequestId) { stopTranscript(); return; }
-    fetch('/api/transcript/' + stationId + '?since=' + _asrCursor)
-      .then(r => r.json())
-      .then(data => {
-        if (myRequestId !== _streamRequestId) return;
-        if (data.enabled === false) {
-          // ユーザーがトグルで OFF にしている（利用不可とは区別）
-          if (!unavailableShown) { showAsrOff(); unavailableShown = true; }
-          return;
-        }
-        if (data.available === false) {
-          if (!unavailableShown) {
-            body.innerHTML = '<div class="transcript-empty">音声認識は利用できません</div>';
-            unavailableShown = true;
-          }
-          return;
-        }
-        unavailableShown = false;  // available に戻ったら再表示できるよう解除
-        if (data.segments && data.segments.length) {
-          if (!hasText) { body.innerHTML = ''; hasText = true; }
-          for (const s of data.segments) {
-            const line = document.createElement('div');
-            line.className = 'transcript-line';
-            line.textContent = s.text;
-            body.appendChild(line);
-          }
-          _asrCursor = data.cursor;
-          body.scrollTop = body.scrollHeight;
-        }
-      })
-      .catch(() => {});
-  };
-  poll();
-  _transcriptTimer = setInterval(poll, 1500);
-}
-
-function stopTranscript() {
-  if (_transcriptTimer) { clearInterval(_transcriptTimer); _transcriptTimer = null; }
-  _transcriptStation = null;
-}
-
-const CARD_TEMPLATE = (prog) => {
-  const safeTitle   = prog.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  const safeStation = prog.station_name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  // has_program=false（オフライン／番組の谷間）でも局名と再生ボタンは表示する。
-  // 番組依存（ON AIR バッジ・放送時刻・進捗バー）は番組があるときだけ描画する。
-  return `
+// 放映中ページ固有の JS（カード生成と一覧取得）。プレーヤー本体は static/player.js（常駐）。
+// Turbo は body の <script> を遷移ごとに再評価するため IIFE で囲み、トップレベルの
+// const 再宣言衝突を避ける。inline onclick から呼ぶ loadOnAir は window へ公開する。
+(function () {
+  const CARD_TEMPLATE = (prog) => {
+    const safeTitle = prog.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const safeStation = prog.station_name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    // has_program=false（オフライン／番組の谷間）でも局名と再生ボタンは表示する。
+    return `
 <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
   <div class="card on-air-card h-100"
        data-station-id="${prog.station_id}"
@@ -219,228 +73,42 @@ const CARD_TEMPLATE = (prog) => {
     </div>
   </div>
 </div>`;
-};
-
-function playStreamFromCard(cardEl, btnEl) {
-  const d = cardEl.dataset;
-  playStream(d.stationId, d.stationName, d.title, d.isRecording === 'true', btnEl);
-}
-
-function loadOnAir(force = false) {
-  document.getElementById('onAirLoader').classList.remove('d-none');
-  document.getElementById('onAirGrid').classList.add('d-none');
-  document.getElementById('onAirError').classList.add('d-none');
-  document.getElementById('refreshBtn').disabled = true;
-
-  // force=true（更新ボタン）はキャッシュを無視して番組情報を再取得する
-  fetch('/api/on-air' + (force ? '?refresh=1' : ''))
-    .then(r => r.json())
-    .then(data => {
-      const grid = document.getElementById('onAirGrid');
-      grid.innerHTML = data.map(CARD_TEMPLATE).join('');
-      grid.classList.remove('d-none');
-      document.getElementById('onAirLoader').classList.add('d-none');
-    })
-    .catch(() => {
-      document.getElementById('onAirError').classList.remove('d-none');
-      document.getElementById('onAirLoader').classList.add('d-none');
-    })
-    .finally(() => {
-      document.getElementById('refreshBtn').disabled = false;
-    });
-}
-
-function playStream(stationId, stationName, title, isRecording, btnEl) {
-  // リクエストIDを採番し、古いコールバックを無効化する
-  const myRequestId  = ++_streamRequestId;
-  // 接続中・再生中を問わず既存ストリームがあれば stop-stream が必要
-  const wasActive    = _activeStationId !== null;
-  _activeStationId   = stationId; // 新ステーションを即座にアクティブとしてマーク
-  _lastStation = { id: stationId, name: stationName, title, isRecording };
-
-  const audio        = document.getElementById('streamAudio');
-  const bar          = document.getElementById('nowPlayingBar');
-  const spinner      = document.getElementById('connectingSpinner');
-  const statusText   = document.getElementById('connectingStatus');
-  const errMsg       = document.getElementById('streamError');
-  const badge        = document.getElementById('nowPlayingBadge');
-
-  // 既存再生・タイムアウトをリセット
-  if (!audio.paused) { audio.pause(); }
-  if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
-  audio.onerror   = null;
-  audio.oncanplay = null;
-  audio.onplaying = null;
-  audio.onwaiting = null;
-  audio.onstalled = null;
-  audio.removeAttribute('src');
-  audio.load();
-
-  // 押されたボタンをローディング状態にする
-  const playLabel = isRecording ? '録音から再生' : '再生';
-  if (btnEl) {
-    btnEl.disabled = true;
-    btnEl.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>接続中...';
-  }
-  function resetBtn() {
-    if (btnEl) {
-      btnEl.disabled = false;
-      btnEl.innerHTML = '<i class="bi bi-play-fill me-1"></i>' + playLabel;
-    }
-  }
-
-  function showError(message) {
-    if (myRequestId !== _streamRequestId) return; // 古いリクエストは無視
-    clearTimeout(window._streamTimeout);
-    window._streamTimeout = null;
-    spinner.classList.add('d-none');
-    statusText.textContent = '';
-    bar.classList.remove('bar-connecting');
-    errMsg.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + message;
-    errMsg.className = 'text-danger small';
-    _activeStationId = null;
-    stopTranscript();
-    document.getElementById('transcriptPanel').classList.add('d-none');
-    resetBtn();
-    // 再生不可の場合は 4 秒後にバーを自動非表示
-    window._streamTimeout = setTimeout(() => {
-      bar.classList.add('d-none');
-      window._streamTimeout = null;
-    }, 4000);
-  }
-
-  function onConnected() {
-    if (myRequestId !== _streamRequestId) return; // 古いリクエストは無視
-    if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
-    spinner.classList.add('d-none');
-    statusText.textContent = '';
-    bar.classList.remove('bar-connecting');
-    errMsg.className = 'd-none';
-    resetBtn();
-    if (_asrEnabled) startTranscript(stationId);
-  }
-
-  // バーを「接続中」で即表示
-  document.getElementById('nowPlayingTitle').textContent = title;
-  document.getElementById('nowPlayingStation').textContent = stationName;
-  badge.innerHTML = isRecording
-    ? '<i class="bi bi-record-fill"></i> REC'
-    : '<i class="bi bi-broadcast-pin"></i> LIVE';
-  errMsg.className = 'd-none';
-  errMsg.innerHTML = '';
-  spinner.classList.remove('d-none');
-  statusText.textContent = 'ストリーム確認中...';
-  bar.classList.remove('d-none');
-  bar.classList.add('bar-connecting');
-
-  const startFetch = () => {
-    if (myRequestId !== _streamRequestId) return; // 後続リクエストで上書き済み
-
-    fetch('/api/stream-status/' + stationId)
-      .then(r => r.json())
-      .then(status => {
-        if (myRequestId !== _streamRequestId) return; // 後続リクエストで上書き済み
-
-        if (!status.available) {
-          showError(status.reason);
-          return;
-        }
-
-        statusText.textContent = '接続中...';
-
-        // 20 秒以内に再生が始まらなければタイムアウト
-        window._streamTimeout = setTimeout(() => {
-          if (myRequestId !== _streamRequestId) return;
-          audio.pause();
-          audio.removeAttribute('src');
-          showError('接続タイムアウト（ストリーミングが開始されませんでした）');
-        }, 20000);
-
-        audio.onerror = function () {
-          if (myRequestId !== _streamRequestId) return;
-          const code = audio.error ? audio.error.code : -1;
-          const msgs = {
-            [MediaError.MEDIA_ERR_NETWORK]: 'ネットワークエラー（SDR 未接続の可能性）',
-            [MediaError.MEDIA_ERR_DECODE]:  '音声デコードエラー',
-            [MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED]: '音声形式未対応',
-          };
-          showError(msgs[code] || 'ストリーミングエラー (code=' + code + ')');
-        };
-
-        audio.onwaiting = function () {
-          if (myRequestId !== _streamRequestId) return;
-          spinner.classList.remove('d-none');
-          statusText.textContent = 'バッファリング中...';
-        };
-
-        audio.onstalled = function () {
-          if (myRequestId !== _streamRequestId) return;
-          spinner.classList.remove('d-none');
-          statusText.textContent = '接続が遅延しています...';
-          // macOS/Safari/Chrome ではライブストリーム中の一時的なバッファ不足でも
-          // stalled が発火する。ここで停止APIを呼ぶと、正常に復帰できる短い遅延でも
-          // サーバ側の SDR/FIFO/ffmpeg を自分で止めてしまい、5〜10秒で再生が切れる。
-          // stalled は致命的エラー扱いせず、状態表示だけに留める。
-        };
-
-        audio.oncanplay = function () { onConnected(); };
-        audio.onplaying = function () { onConnected(); };
-
-        audio.src = '/stream/' + stationId + '?asr=' + (_asrEnabled ? '1' : '0');
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(err => {
-            if (err.name === 'AbortError') return; // pause() による意図的な中断、無視
-            if (myRequestId !== _streamRequestId) return;
-            showError('再生エラー: ' + err.message);
-          });
-        }
-      })
-      .catch(err => {
-        if (myRequestId !== _streamRequestId) return;
-        showError(err.message);
-      });
   };
 
-  if (wasActive) {
-    // 旧ストリームの SDR デバイス解放を確実に待ってから新ストリームを開始
-    fetch('/api/stop-stream', { method: 'POST' })
-      .finally(() => startFetch());
-  } else {
-    startFetch();
+  function loadOnAir(force = false) {
+    const loader = document.getElementById('onAirLoader');
+    const grid = document.getElementById('onAirGrid');
+    const error = document.getElementById('onAirError');
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (!grid) return;  // 放映中ページ以外（Turbo 遷移後）では何もしない
+    loader.classList.remove('d-none');
+    grid.classList.add('d-none');
+    error.classList.add('d-none');
+    if (refreshBtn) refreshBtn.disabled = true;
+
+    // force=true（更新ボタン）はキャッシュを無視して番組情報を再取得する
+    fetch('/api/on-air' + (force ? '?refresh=1' : ''))
+      .then((r) => r.json())
+      .then((data) => {
+        grid.innerHTML = data.map(CARD_TEMPLATE).join('');
+        grid.classList.remove('d-none');
+        loader.classList.add('d-none');
+      })
+      .catch(() => {
+        error.classList.remove('d-none');
+        loader.classList.add('d-none');
+      })
+      .finally(() => {
+        if (refreshBtn) refreshBtn.disabled = false;
+      });
   }
-}
 
-function stopStream() {
-  ++_streamRequestId;  // 進行中のすべてのコールバックを無効化
-  _activeStationId = null;
-  _lastStation = null;
-  const audio = document.getElementById('streamAudio');
-  if (window._streamTimeout) { clearTimeout(window._streamTimeout); window._streamTimeout = null; }
-  audio.onerror   = null;
-  audio.oncanplay = null;
-  audio.onplaying = null;
-  audio.onwaiting = null;
-  audio.onstalled = null;
-  audio.pause();
-  audio.src = '';
-  const bar = document.getElementById('nowPlayingBar');
-  bar.classList.add('d-none');
-  bar.classList.remove('bar-connecting');
-  document.getElementById('connectingStatus').textContent = '';
-  stopTranscript();  // ポーリング停止（パネルは停止後も読めるよう残す）
-  fetch('/api/stop-stream', { method: 'POST' }).catch(() => {});
-}
+  // inline onclick（更新ボタン）から呼べるよう公開。
+  window.loadOnAir = loadOnAir;
 
-function restartStream() {
-  if (!_lastStation) return;
-  const { id, name, title, isRecording } = _lastStation;
-  // デッドロック時は _activeStationId が null でも SDR が残っている可能性があるため
-  // 明示的に stop-stream を先に呼んでから再接続する
-  fetch('/api/stop-stream', { method: 'POST' })
-    .finally(() => playStream(id, name, title, isRecording, null));
-}
-
-document.addEventListener('DOMContentLoaded', () => { loadOnAir(); syncAsrState(); });
+  // この <script> は Turbo 遷移ごと（および初回）に再評価されるため、直接呼べばよい
+  // （document リスナーを足すと遷移のたびに蓄積するので使わない）。
+  loadOnAir();
+})();
 </script>
 {% endblock %}

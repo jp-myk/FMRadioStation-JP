@@ -6,7 +6,15 @@
   <title>{% block title %}FM Radio Station{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v={{ static_v('styles.css') }}">
+  <!-- Turbo Drive: リンク遷移を AJAX 化し body を差し替える。#playerDock は
+       data-turbo-permanent で遷移をまたいで保持され、ラジオ再生が継続する。 -->
+  <script src="https://cdn.jsdelivr.net/npm/@hotwired/turbo@8.0.12/dist/turbo.es2017-umd.min.js"></script>
+  <!-- 共有スクリプトは head で一度だけ評価（Turbo は同一 src の head script を再実行しない）。
+       ?v=<mtime> でファイル更新時に確実に再取得させる（キャッシュ無効化）。 -->
+  <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script defer src="{{ url_for('static', path='script.js') }}?v={{ static_v('script.js') }}"></script>
+  <script defer src="{{ url_for('static', path='player.js') }}?v={{ static_v('player.js') }}"></script>
 </head>
 <body>
   <!-- ローディングオーバーレイ -->
@@ -80,8 +88,39 @@
     {% block content %}{% endblock %}
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="{{ url_for('static', path='script.js') }}"></script>
+  <!-- 常駐プレーヤー dock（全ページ共通・Turbo 遷移をまたいで保持）。
+       字幕パネルと再生バーを縦積みして隙間なく密着させる。空のときは高さ 0 で不可視。 -->
+  <div id="playerDock" class="player-dock" data-turbo-permanent>
+    <!-- 自動字幕パネル -->
+    <div id="transcriptPanel" class="transcript-panel d-none">
+      <div class="transcript-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-card-text me-1"></i>自動字幕<span class="badge bg-secondary ms-2">ベータ</span></span>
+        <div class="form-check form-switch mb-0 small text-secondary d-none" id="asrToggleWrap" title="自動字幕（音声認識）の ON/OFF">
+          <input class="form-check-input" type="checkbox" role="switch" id="asrToggle" onchange="toggleAsr(this.checked)">
+          <label class="form-check-label" for="asrToggle">自動字幕 <span id="asrToggleLabel">OFF</span></label>
+        </div>
+      </div>
+      <div id="transcriptBody" class="transcript-body"></div>
+    </div>
+    <!-- 再生中バー -->
+    <div id="nowPlayingBar" class="now-playing-bar d-none">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span id="nowPlayingBadge" class="badge bg-danger">
+          <i class="bi bi-broadcast-pin"></i> LIVE
+        </span>
+        <span id="nowPlayingTitle" class="fw-bold text-white"></span>
+        <span id="nowPlayingStation" class="text-secondary small"></span>
+        <div id="connectingSpinner" class="spinner-border spinner-border-sm text-light d-none" role="status"></div>
+        <span id="connectingStatus" class="text-secondary small"></span>
+        <div id="streamError" class="d-none"></div>
+        <button class="btn btn-sm btn-outline-danger ms-auto" id="stopBtn" onclick="stopStream()">
+          <i class="bi bi-stop-fill me-1"></i>停止
+        </button>
+      </div>
+    </div>
+    <audio id="streamAudio" style="display:none;"></audio>
+  </div>
+
   {% block scripts %}{% endblock %}
 </body>
 </html>

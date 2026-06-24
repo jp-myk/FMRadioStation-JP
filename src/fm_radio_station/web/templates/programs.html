@@ -79,7 +79,8 @@
         <h5 class="modal-title" id="reserveModalLabel"><i class="bi bi-bookmark-plus me-2"></i>録音予約</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <form method="post" action="{{ url_for('schedule_recording') }}" id="reserveForm">
+      <!-- 302 リダイレクトのネイティブ送信のまま動かすため Turbo を無効化する -->
+      <form method="post" action="{{ url_for('schedule_recording') }}" id="reserveForm" data-turbo="false">
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label text-secondary small">番組タイトル</label>
