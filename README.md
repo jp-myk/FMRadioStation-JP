@@ -8,6 +8,14 @@ A program for managing FM radio listening and recording using SDR (Software-Defi
 GNU Radio libraries(License: GPLv3) are used for radio reception with SDR.  
 Uses the Radiko program guide API to schedule recordings by program.
 
+## Web UI Preview
+
+A Web UI lets you browse and play every station from your browser, and schedule recordings by program from the guide.
+
+| On Air (play any station, auto-subtitles) | Program Guide (reserve by program) | Manage Reservations |
+|:---:|:---:|:---:|
+| ![On Air](images/radio_on_air.png) | ![Program Guide](images/radio_programs.png) | ![Reservations](images/radio_reservations.png) |
+
 ## Key Features
 
 - **📻 Works without internet** — Reception is done entirely by the SDR device over the airwaves, not by streaming. As long as the radio signal reaches your antenna, you can **listen and record even with no Wi‑Fi / internet connection**. The "On Air" page lists every station with a play button regardless of connectivity; only the Radiko program guide (titles/schedule) needs internet, and its absence simply hides the program names — playback and recording keep working.
