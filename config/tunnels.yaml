@@ -12,9 +12,6 @@ stations:
   - { id: FMJ,          name: J-WAVE,             freq: 81300000, type: fm }
   - { id: JOAK-FM,      name: NHK-FM 東京,        freq: 82500000, type: fm }
   - { id: YFM,          name: FMヨコハマ,         freq: 84700000, type: fm }
-  # AM局
-  - { id: JOAK,         name: NHKラジオ第1,       freq: 594000,   type: am }
-  - { id: JOAB,         name: NHKラジオ第2,       freq: 693000,   type: am }
   # ワイドFM / FM補完放送
   - { id: AFN,          name: AFN Tokyo,          freq: 89100000, type: fm }
   - { id: TBS,          name: TBSラジオ,          freq: 90500000, type: fm }
@@ -30,3 +27,6 @@ stations:
   - { id: SETAGAYA,     name: FM世田谷,           freq: 83400000, type: fm }
   - { id: FM-TACHIKAWA, name: FMたちかわ,         freq: 83600000, type: fm }
   - { id: CHOFU,        name: 調布FM,             freq: 83800000, type: fm }
+  # AM局
+  - { id: JOAK,         name: NHKラジオ第1,       freq: 594000,   type: am }
+  - { id: JOAB,         name: NHKラジオ第2,       freq: 693000,   type: am }
