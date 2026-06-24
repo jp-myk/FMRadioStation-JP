@@ -1,5 +1,7 @@
 [English](README.md) | 日本語
 
+[![CI](https://github.com/jp-myk/FMRadioStation-JP/actions/workflows/ci.yml/badge.svg)](https://github.com/jp-myk/FMRadioStation-JP/actions/workflows/ci.yml)
+
 # FM Radio Station JP
 
 SDR（Software Defined Radio）デバイスを使って FM ラジオの聴取・録音を管理するプログラムです。  

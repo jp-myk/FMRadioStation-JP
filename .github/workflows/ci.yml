@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-compose:
+    name: Docker Compose build (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate compose config
+        run: docker compose --profile cli --profile web config -q
+
+      # 同一 Dockerfile の多段ビルド（parakeet.cpp / llama.cpp の C++ ビルドを含む）が
+      # 通ることを検証する。service を 1 つ指定すれば profile に関わらずビルドされる。
+      # /dev/bus/usb デバイスは build には不要（up/run のみ必要）。
+      - name: Build image via docker compose
+        run: docker compose build radio-webui
+
+  local-macos:
+    name: Local run tests (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        id: py
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+
+      # GNU Radio は system パッケージのため CI には入れない（軽量方針）。
+      # SDR 依存の tests/test_on_air.py は import 失敗時に自動 skip される。
+      - name: Install dependencies
+        run: uv sync --python '${{ steps.py.outputs.python-path }}'
+
+      - name: Run tests
+        run: uv run --with pytest python -m pytest -q
