@@ -7,7 +7,7 @@
 </div>
 
 <div class="row g-4 mt-1">
-  <!-- 録画中 -->
+  <!-- 録音中 -->
   <div class="col-12 col-sm-6 col-xl-4">
     <a href="/recording" class="text-decoration-none">
       <div class="card stat-card stat-card-recording h-100">
@@ -17,7 +17,7 @@
           </div>
           <div>
             <div class="stat-value">{{ in_progress|length }}</div>
-            <div class="stat-label">録画中</div>
+            <div class="stat-label">録音中</div>
           </div>
         </div>
       </div>
@@ -41,7 +41,7 @@
     </a>
   </div>
 
-  <!-- 録画済み -->
+  <!-- 録音済み -->
   <div class="col-12 col-sm-6 col-xl-4">
     <a href="/recorded" class="text-decoration-none">
       <div class="card stat-card stat-card-completed h-100">
@@ -51,7 +51,7 @@
           </div>
           <div>
             <div class="stat-value">{{ completed|length }}</div>
-            <div class="stat-label">録画済み</div>
+            <div class="stat-label">録音済み</div>
           </div>
         </div>
       </div>
@@ -65,14 +65,14 @@
     <h5 class="text-secondary mb-3">クイックリンク</h5>
     <div class="d-flex flex-wrap gap-2">
       <a href="/on-air" class="btn btn-outline-primary">
-        <i class="bi bi-broadcast me-1"></i>放映中を見る
+        <i class="bi bi-broadcast me-1"></i>放送中を見る
       </a>
       <a href="/programs" class="btn btn-outline-secondary">
         <i class="bi bi-calendar3 me-1"></i>番組表を開く
       </a>
       {% if in_progress %}
       <a href="/recording" class="btn btn-danger">
-        <i class="bi bi-record-circle me-1"></i>録画中を確認
+        <i class="bi bi-record-circle me-1"></i>録音中を確認
       </a>
       {% endif %}
     </div>
@@ -80,9 +80,9 @@
 </div>
 
 {% if in_progress %}
-<!-- 録画中番組 -->
+<!-- 録音中番組 -->
 <div class="mt-4">
-  <h5 class="text-secondary mb-3"><i class="bi bi-record-circle text-danger me-2"></i>録画中の番組</h5>
+  <h5 class="text-secondary mb-3"><i class="bi bi-record-circle text-danger me-2"></i>録音中の番組</h5>
   <div class="row g-3">
     {% for item in in_progress %}
     <div class="col-12 col-md-6">
@@ -93,7 +93,7 @@
               <h6 class="card-title mb-1">{{ item.title }}</h6>
               <small class="text-secondary">{{ item.station_name }} &nbsp;|&nbsp; {{ item.start_time.strftime('%H:%M') if item.start_time is not string else item.start_time[:16] }}</small>
             </div>
-            <span class="badge bg-danger ms-2">録画中</span>
+            <span class="badge bg-danger ms-2">録音中</span>
           </div>
         </div>
       </div>

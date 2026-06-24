@@ -1,9 +1,9 @@
 {% extends "layout.html" %}
-{% block title %}放映中 — FM Radio Station{% endblock %}
+{% block title %}放送中 — FM Radio Station{% endblock %}
 
 {% block content %}
 <div class="page-header d-flex align-items-center justify-content-between">
-  <h4 class="mb-0"><i class="bi bi-broadcast me-2"></i>放映中</h4>
+  <h4 class="mb-0"><i class="bi bi-broadcast me-2"></i>放送中</h4>
   <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
     <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadOnAir(true)">
       <i class="bi bi-arrow-clockwise me-1"></i>更新
@@ -30,7 +30,7 @@
 
 {% block scripts %}
 <script>
-// 放映中ページ固有の JS（カード生成と一覧取得）。プレーヤー本体は static/player.js（常駐）。
+// 放送中ページ固有の JS（カード生成と一覧取得）。プレーヤー本体は static/player.js（常駐）。
 // Turbo は body の <script> を遷移ごとに再評価するため IIFE で囲み、トップレベルの
 // const 再宣言衝突を避ける。inline onclick から呼ぶ loadOnAir は window へ公開する。
 (function () {
@@ -80,7 +80,7 @@
     const grid = document.getElementById('onAirGrid');
     const error = document.getElementById('onAirError');
     const refreshBtn = document.getElementById('refreshBtn');
-    if (!grid) return;  // 放映中ページ以外（Turbo 遷移後）では何もしない
+    if (!grid) return;  // 放送中ページ以外（Turbo 遷移後）では何もしない
     loader.classList.remove('d-none');
     grid.classList.add('d-none');
     error.classList.add('d-none');
