@@ -118,6 +118,7 @@ def update_global_state():
 _active_streamers: dict = {}  # station_id → (StreamingReceiver, fifo_path)
 _stream_lock = threading.Lock()
 _sdr_lock = threading.Lock()   # SDRハードウェア排他ロック（USB占有を保証）
+_recording_events: dict = {}   # output_file → threading.Event（録音中止シグナル）
 
 
 # ------------------------------
@@ -314,6 +315,12 @@ def record_radio(station_id, output_file, duration, title, start_time, program_d
     _stop_asr()
     gc.collect()
 
+    # ストリーミングが保持していた _sdr_lock を解放（record_radio は取得しない）
+    try:
+        _sdr_lock.release()
+    except RuntimeError:
+        pass  # 取得されていなければ無視
+
     with _state_lock:
         for scheduled_item in SCHEDULED_RECORDINGS[:]:
             if scheduled_item.get("output") == output_file:
@@ -330,29 +337,50 @@ def record_radio(station_id, output_file, duration, title, start_time, program_d
         "output": output_file,
         "program_detail": program_detail,
     }
+    stop_event = threading.Event()
+    _recording_events[output_file] = stop_event  # IN_PROGRESS 登録前に仕込む（キャンセル競合防止）
     with _state_lock:
         IN_PROGRESS_RECORDINGS.append(in_progress_item)
     update_global_state()
 
     print(f"[{datetime.datetime.now(JST)}] 録音開始: {station['name']} - {output_file}")
-    if station.get("type") == "am":
-        receiver = AMReceiver(station["freq"], 2.4e6, output_file, 16000, 16, 40)
-    else:
-        receiver = FMReceiver(station["freq"], 2.4e6, output_file, 16000, 16, 40)
-    receiver.start()
-    time.sleep(duration)
-    receiver.stop()
-    receiver.wait()
-    print(f"[{datetime.datetime.now(JST)}] 録音終了: {output_file}")
+    receiver = None
+    recording_ok = False
+    try:
+        if station.get("type") == "am":
+            receiver = AMReceiver(station["freq"], 2.4e6, output_file, 16000, 16, 40)
+        else:
+            receiver = FMReceiver(station["freq"], 2.4e6, output_file, 16000, 16, 40)
+        receiver.start()
+        cancelled = stop_event.wait(timeout=duration)  # True=中止ボタン, False=正常終了
+        receiver.stop()
+        receiver.wait()
+        if cancelled:
+            print(f"[{datetime.datetime.now(JST)}] 録音中止: {output_file}")
+        else:
+            print(f"[{datetime.datetime.now(JST)}] 録音終了: {output_file}")
+            recording_ok = True
+    except Exception as e:
+        print(f"[{datetime.datetime.now(JST)}] 録音エラー ({station['name']}): {e}")
+        if receiver is not None:
+            try:
+                receiver.stop()
+                receiver.wait()
+            except Exception:
+                pass
+    finally:
+        _recording_events.pop(output_file, None)
+        with _state_lock:
+            try:
+                IN_PROGRESS_RECORDINGS.remove(in_progress_item)
+            except ValueError:
+                pass
+            if recording_ok:
+                COMPLETED_RECORDINGS.append(in_progress_item.copy())
+        update_global_state()
 
-    with _state_lock:
-        try:
-            IN_PROGRESS_RECORDINGS.remove(in_progress_item)
-        except ValueError:
-            pass
-        completed_item = in_progress_item.copy()
-        COMPLETED_RECORDINGS.append(completed_item)
-    update_global_state()
+    if not recording_ok:
+        return
 
     json_file = output_file.rsplit('.', 1)[0] + ".json"
     recording_info = {
@@ -613,6 +641,19 @@ def api_recording():
             "remaining": int(remaining),
         })
     return items
+
+
+@app.delete("/api/recording/{idx}")
+def api_cancel_recording(idx: int):
+    with _state_lock:
+        if idx < 0 or idx >= len(IN_PROGRESS_RECORDINGS):
+            return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
+        item = IN_PROGRESS_RECORDINGS[idx]
+    event = _recording_events.get(item.get("output", ""))
+    if event is None:
+        return JSONResponse(content={"error": "録音が停止できませんでした"}, status_code=409)
+    event.set()
+    return {"cancelled": True, "title": item["title"]}
 
 
 @app.get("/api/recorded")
@@ -1077,6 +1118,12 @@ def stream_audio(station_id: str, request: Request, asr: int = 1):
 # ------------------------------
 # ＜起動時の再スケジュール＞
 def reschedule_pending():
+    # 前プロセスで中途終了した録音はイベント/スレッドが存在しないため削除する
+    if IN_PROGRESS_RECORDINGS:
+        with _state_lock:
+            IN_PROGRESS_RECORDINGS.clear()
+        update_global_state()
+
     now = datetime.datetime.now(JST)
     for rec in SCHEDULED_RECORDINGS[:]:
         start_dt = (

@@ -33,7 +33,7 @@
             </td>
           </tr>
         {% endif %}
-      <tr>
+      <tr data-slot="{{ time_slot }}">
         <td class="time-col text-secondary small">{{ time_slot[11:] }}</td>
         {% for station in stations %}
         <td class="program-cell">
@@ -122,5 +122,71 @@ function openReserveModal(el) {
   document.getElementById('modal-program-id').value = el.dataset.programId;
   new bootstrap.Modal(document.getElementById('reserveModal')).show();
 }
+
+// ---- 現在時刻インジケーター ----
+function getNowSlot() {
+  // JST (UTC+9) で "YYYY-MM-DD HH:MM" を返す（ブラウザのタイムゾーン設定に依存しない）
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 16).replace('T', ' ');
+}
+
+function findCurrentRow() {
+  const slot = getNowSlot();
+  let row = document.querySelector('tr[data-slot="' + slot + '"]');
+  if (!row) {
+    // 番組開始時刻単位のスロットのため、現在時刻以前の最後の行にフォールバック
+    const rows = document.querySelectorAll('tr[data-slot]');
+    for (const r of rows) {
+      if (r.dataset.slot <= slot) row = r;
+      else break;
+    }
+  }
+  return row;
+}
+
+function scrollToCurrentRow(row) {
+  const wrapper = document.querySelector('.program-grid-wrapper');
+  if (!wrapper || !row) return;
+  const theadTh = wrapper.querySelector('thead th');
+  const stickyOffset = theadTh ? theadTh.getBoundingClientRect().height : 37;
+  const wrapperRect = wrapper.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  wrapper.scrollTop = rowRect.top - wrapperRect.top + wrapper.scrollTop - stickyOffset - 40;
+}
+
+function updateCurrentTimeIndicator() {
+  document.querySelectorAll('tr.current-time-row').forEach(r => r.classList.remove('current-time-row'));
+  const row = findCurrentRow();
+  if (row) row.classList.add('current-time-row');
+  return row;
+}
+
+function initCurrentTimeIndicator() {
+  if (window._ctInterval) { clearInterval(window._ctInterval); window._ctInterval = null; }
+  if (window._ctTimeout)  { clearTimeout(window._ctTimeout);  window._ctTimeout  = null; }
+
+  const row = updateCurrentTimeIndicator();
+  if (row) scrollToCurrentRow(row);
+
+  // 次の00秒に合わせてintervalを同期開始
+  const now = new Date();
+  const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  window._ctTimeout = setTimeout(() => {
+    updateCurrentTimeIndicator();
+    window._ctInterval = setInterval(updateCurrentTimeIndicator, 60 * 1000);
+  }, msToNextMinute);
+}
+
+// Turboキャッシュ復元前にクリーンアップ
+document.addEventListener('turbo:before-cache', () => {
+  if (window._ctInterval) { clearInterval(window._ctInterval); window._ctInterval = null; }
+  if (window._ctTimeout)  { clearTimeout(window._ctTimeout);  window._ctTimeout  = null; }
+  document.querySelectorAll('tr.current-time-row').forEach(r => r.classList.remove('current-time-row'));
+});
+
+// player.js と同パターン: Turbo遷移 + 初回ロードの両対応
+document.addEventListener('turbo:load', initCurrentTimeIndicator);
+if (document.readyState !== 'loading') initCurrentTimeIndicator();
+else document.addEventListener('DOMContentLoaded', initCurrentTimeIndicator);
 </script>
 {% endblock %}

@@ -226,7 +226,7 @@
             audio.pause();
             audio.removeAttribute('src');
             showError('接続タイムアウト（ストリーミングが開始されませんでした）');
-          }, 20000);
+          }, 60000);
 
           audio.onerror = function () {
             if (myRequestId !== _streamRequestId) return;

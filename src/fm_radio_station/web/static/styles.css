@@ -428,6 +428,15 @@ body {
   border-color: #2a5a8a !important;
 }
 
+/* ---- Current Time Indicator ------------------------------- */
+.current-time-row td {
+  border-top: 2px solid var(--accent) !important;
+}
+.current-time-row .time-col {
+  color: var(--accent) !important;
+  font-weight: bold;
+}
+
 /* ---- Reservations table ----------------------------------- */
 .fade-out {
   transition: opacity 0.3s, transform 0.3s;
