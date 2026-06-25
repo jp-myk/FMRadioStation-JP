@@ -14,6 +14,7 @@ ASR 実行は ``build_backend(config)`` が選択モデルの backend（parakeet
 import os
 
 import numpy as np
+from loguru import logger
 
 from fm_radio_station.asr_core.asr import build_backend
 from fm_radio_station.asr_core.config import ASRConfig
@@ -98,6 +99,26 @@ def transcribe_wav_to_vtt(
 
     samples, sample_rate = read_wav_int16(wav_path)
     speech = _detect_speech(samples, sample_rate, config)
+    logger.info(f"VAD: {len(speech)} 区間を検出 ({os.path.basename(wav_path)})")
+
+    # broadcast 音声では silero-vad が発話を検出できないことがある（config.py 参照）。
+    # VAD が空を返した場合は service.py と同じ固定長+RMSフィルタのフォールバックを使う。
+    if not speech:
+        logger.warning(
+            f"VAD が発話区間を検出しませんでした。固定長フォールバックに切り替えます "
+            f"(chunk={config.live_fallback_segment_sec}s, min_rms={config.live_fallback_min_rms})"
+        )
+        chunk_samples = int(config.live_fallback_segment_sec * sample_rate)
+        min_rms = config.live_fallback_min_rms
+        speech = []
+        for start in range(0, len(samples), chunk_samples):
+            end = min(start + chunk_samples, len(samples))
+            chunk = samples[start:end]
+            rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+            if rms >= min_rms:
+                speech.append({"start": start, "end": end})
+        logger.info(f"フォールバック: RMS フィルタ後 {len(speech)} 区間")
+
     cues: list[tuple[float, float, str]] = []
     for seg in speech:
         start, end = int(seg["start"]), int(seg["end"])
@@ -107,4 +128,8 @@ def transcribe_wav_to_vtt(
         text = backend.transcribe(chunk, sample_rate)
         if text:
             cues.append((start / sample_rate, end / sample_rate, text))
+    if not cues:
+        raise RuntimeError(
+            "字幕を生成できませんでした（発話が検出されないか認識結果が空でした）"
+        )
     _write_vtt(cues, vtt_path)

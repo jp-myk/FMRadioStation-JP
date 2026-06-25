@@ -6,9 +6,8 @@ import time
 import datetime
 import json
 import threading
-import logging
-import logging.handlers
 import argparse
+from loguru import logger
 from dataclasses import dataclass, field
 from typing import List, Set, Callable
 
@@ -238,7 +237,6 @@ class RadioScheduler:
 # メイン処理
 # -----------------------------------------------------------------------------
 def main():
-    global logger
     try:
         config = RadioConfig.from_args()
     except (ValueError, FileNotFoundError) as e:
@@ -246,23 +244,14 @@ def main():
         return
 
     os.makedirs(config.log_dir, exist_ok=True)
-
-    log_filename = os.path.join(config.log_dir, "radio_recorder.log")
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(threadName)s: %(message)s",
-        handlers=[
-            logging.handlers.TimedRotatingFileHandler(
-                filename=log_filename,
-                when="midnight",
-                interval=1,
-                backupCount=7,
-                encoding="utf-8",
-                utc=False,
-            )
-        ],
+    logger.add(
+        os.path.join(config.log_dir, "radio_recorder.log"),
+        rotation="00:00",
+        retention="3 days",
+        encoding="utf-8",
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm:ss} [{level}] {thread.name}: {message}",
     )
-    logger = logging.getLogger(__name__)
 
     client = RadikoClient()
     recorder = RadioRecorder(config=config)

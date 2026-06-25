@@ -68,3 +68,8 @@ def vad_config_file() -> Path:
 def tunnels_config_file() -> Path:
     env = os.environ.get("TUNNELS_CONFIG")
     return Path(env) if env else config_dir() / "tunnels.yaml"
+
+
+def log_dir() -> Path:
+    env = os.environ.get("LOG_DIR")
+    return Path(env) if env else _base() / "log"

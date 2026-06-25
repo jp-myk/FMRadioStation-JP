@@ -24,6 +24,7 @@ import subprocess
 import tempfile
 
 import numpy as np
+from loguru import logger
 
 from fm_radio_station.asr_core.asr.backend import ASRBackend
 from fm_radio_station.asr_core.config import ASRConfig
@@ -132,7 +133,15 @@ class ParakeetCppBackend(ASRBackend):
                 raise RuntimeError(
                     f"parakeet-cli failed (code {proc.returncode}): {err}"
                 )
-            return self._parse_output(proc.stdout.decode("utf-8", "replace"))
+            stdout_text = proc.stdout.decode("utf-8", "replace")
+            result = self._parse_output(stdout_text)
+            if not result:
+                stderr_text = proc.stderr.decode("utf-8", "replace").strip()
+                logger.warning(
+                    f"parakeet-cli: 空の結果 "
+                    f"stdout={repr(stdout_text[:200])} stderr={repr(stderr_text[:200])}"
+                )
+            return result
         finally:
             try:
                 os.unlink(wav_path)
