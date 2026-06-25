@@ -88,6 +88,9 @@
 
     const poll = () => {
       if (myRequestId !== _streamRequestId) { stopTranscript(); return; }
+      // Turbo 遷移で body が差し替わるため、参照はキャッシュせず毎回引き直す。
+      const body = byId('transcriptBody');
+      if (!body) return;
       fetch('/api/transcript/' + stationId + '?since=' + _asrCursor)
         .then((r) => r.json())
         .then((data) => {
@@ -292,6 +295,7 @@
     bar.classList.remove('bar-connecting');
     byId('connectingStatus').textContent = '';
     stopTranscript();
+    byId('transcriptPanel').classList.add('d-none');
     fetch('/api/stop-stream', { method: 'POST' }).catch(() => {});
   }
 
@@ -323,7 +327,16 @@
 
   // 初期化（初回・Turbo 遷移ごとにトグル状態を同期＋本文余白を再計算）。dock は
   // permanent なのでハンドラの再バインドは不要だが、mainContent は遷移で差し替わる。
-  function init() { syncAsrState(); applyDockPadding(); }
+  function init() {
+    syncAsrState();
+    applyDockPadding();
+    // Turbo 遷移後、再生中なら字幕レンダラを現在の DOM ノードへ貼り直す。
+    // startTranscript が cursor=0 にリセットしサーバから全セグメントを再描画する。
+    if (_activeStationId && _asrEnabled && _asrAvailable && _transcriptStation) {
+      stopTranscript();
+      startTranscript(_activeStationId);
+    }
+  }
   document.addEventListener('turbo:load', init);
   if (document.readyState !== 'loading') init();
   else document.addEventListener('DOMContentLoaded', init);

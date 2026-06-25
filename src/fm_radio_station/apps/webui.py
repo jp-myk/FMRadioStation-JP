@@ -271,31 +271,45 @@ def _needs_mp3(request: Request) -> bool:
     return "safari" in ua and "chrome" not in ua and "chromium" not in ua and "firefox" not in ua
 
 
-def _cleanup_stream(station_id: str, recv_ref: list, fifo_path: str):
-    """ストリーム終了時の共通リソース解放"""
-    _stop_asr()
+def _teardown_stream(station_id: str, recv_ref: list, fifo_path: str):
+    """ストリーム固有リソースを解放する（identity ベースの単一クレーム）。
+
+    recv_ref[0] を None に差し替えられた“最初の 1 人”だけが受信機停止と
+    _sdr_lock 解放を担う。読み出しと差し替えを同じ _stream_lock 下で行うため、
+    非 None の受信機を観測できるのは厳密に 1 スレッドのみ（=クレーマー）。
+    レジストリ削除は recv_ref の identity 一致時のみ行うので、同一局の新しい
+    ストリームを古い後始末が誤って破棄することはない。
+    """
     with _stream_lock:
-        entry = _active_streamers.pop(station_id, None)
-    r = recv_ref[0]
-    recv_ref[0] = None
-    if entry is not None:
-        if r:
-            try:
-                r.stop()
-                r.wait()
-            except Exception:
-                pass
+        entry = _active_streamers.get(station_id)
+        # entry は (recv_ref, fifo_path) のタプル。recv_ref の identity が一致する
+        # ときのみ取り除く（同一局の新しいストリームを古い後始末で壊さない）。
+        if entry is not None and entry[0] is recv_ref:
+            _active_streamers.pop(station_id, None)
+        r = recv_ref[0]
+        recv_ref[0] = None  # クレーム
+    if r is not None:
+        try:
+            r.stop()
+            r.wait()
+        except Exception:
+            pass
         del r
+        gc.collect()  # 参照カウント → 0、USB 解放
         try:
             _sdr_lock.release()
         except RuntimeError:
             pass
-    else:
-        del r
     try:
         os.unlink(fifo_path)
     except Exception:
         pass
+
+
+def _cleanup_stream(station_id: str, recv_ref: list, fifo_path: str):
+    """ストリーム終了時の共通リソース解放（generate() の finally から呼ばれる）。"""
+    _stop_asr()
+    _teardown_stream(station_id, recv_ref, fifo_path)
 
 
 # ------------------------------
@@ -308,29 +322,11 @@ def record_radio(station_id, output_file, duration, title, start_time, program_d
 
     # ストリーミング中なら停止してから録音
     with _stream_lock:
-        for sid, (recv_ref, fifo_path) in list(_active_streamers.items()):
-            try:
-                r = recv_ref[0]
-                recv_ref[0] = None
-                if r:
-                    r.stop()
-                    r.wait()
-                    del r
-            except Exception:
-                pass
-            try:
-                os.unlink(fifo_path)
-            except Exception:
-                pass
-        _active_streamers.clear()
+        streamers = list(_active_streamers.items())
     _stop_asr()
-    gc.collect()
-
-    # ストリーミングが保持していた _sdr_lock を解放（record_radio は取得しない）
-    try:
-        _sdr_lock.release()
-    except RuntimeError:
-        pass  # 取得されていなければ無視
+    for sid, (recv_ref, fifo_path) in streamers:
+        _teardown_stream(sid, recv_ref, fifo_path)
+    del streamers
 
     with _state_lock:
         for scheduled_item in SCHEDULED_RECORDINGS[:]:
@@ -877,34 +873,25 @@ async def api_asr_set(request: Request):
 
 @app.post("/api/stop-stream")
 def api_stop_stream():
+    # スナップショットを取り（pre-clear しない）、各エントリを identity ベースの
+    # _teardown_stream に委ねる。受信機の停止と _sdr_lock 解放はクレームした
+    # 1 人だけが行うため、接続クローズ起因の _cleanup_stream と競合しても
+    # 二重解放や別ストリームのロック誤解放が起きない。停止は受信機を確実に
+    # 止め、戻る前にロックを解放するので、直後の再生がクリーンに取得できる。
     with _stream_lock:
         streamers = list(_active_streamers.items())
-        _active_streamers.clear()
-    for _sid, (recv_ref, fifo_path) in streamers:
-        # recv_ref[0] を None にしてから del することで、generate() クロージャ側の
-        # 参照と合わせてレシーバオブジェクトの参照カウントを 0 に落とす。
-        # CPython では参照カウントが 0 になった時点でデストラクタが即実行され、
-        # rtlsdr_close() が呼ばれて USB デバイスが解放される。
-        r = recv_ref[0]
-        recv_ref[0] = None
-        if r:
-            try:
-                r.stop()
-                r.wait()
-            except Exception:
-                pass
-            del r  # 参照カウント → 0、USB 解放
-        try:
-            os.unlink(fifo_path)
-        except Exception:
-            pass
-    del streamers  # recv_ref コンテナへの参照を解放
-    gc.collect()   # 念のため強制 GC（PyPy 等の非参照カウント実装向け）
     _stop_asr()
-    try:
+    for sid, (recv_ref, fifo_path) in streamers:
+        _teardown_stream(sid, recv_ref, fifo_path)
+    del streamers
+    # 受信機停止（r.stop()/r.wait() は時間がかかる）は、本ハンドラと接続クローズ
+    # 起因の _cleanup_stream のうち“クレームした側”が担う。本ハンドラがクレームを
+    # 取れなかった場合、停止は別スレッドでまだ進行中で _sdr_lock も未解放のことが
+    # ある。その状態で 200 を返すと、クライアントが直後に投げる別局の
+    # GET /stream が 3 秒以内にロックを取れず 409 になる。SDR が実際に解放される
+    # （= _sdr_lock を取得できる）まで待ってから応答することでこれを防ぐ。
+    if _sdr_lock.acquire(timeout=10.0):
         _sdr_lock.release()
-    except RuntimeError:
-        pass  # generate() の finally が先に解放した場合
     return {"stopped": True}
 
 
