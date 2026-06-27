@@ -30,6 +30,7 @@ class SpeechSegment:
 
 class SpeechSegmenter:
     def __init__(self, config: ASRConfig):
+        """Initialise segmenter state from *config* parameters."""
         self._cfg = config
         self._sr = config.sample_rate
         self._threshold = config.vad_threshold
@@ -45,6 +46,7 @@ class SpeechSegmenter:
         self._preroll = np.empty(0, dtype=np.int16)
 
     def _reset_segment(self) -> None:
+        """Clear per-segment accumulators to prepare for the next segment."""
         self._in_speech = False
         self._buf: list[np.ndarray] = []
         self._buf_len = 0
@@ -114,6 +116,7 @@ class SpeechSegmenter:
         return []
 
     def _append_preroll(self, frame: np.ndarray) -> None:
+        """Append *frame* to the pre-roll buffer, keeping only the last context_samples samples."""
         if self._context_samples <= 0:
             return
         self._preroll = np.concatenate([self._preroll, frame])
@@ -121,6 +124,7 @@ class SpeechSegmenter:
             self._preroll = self._preroll[-self._context_samples:]
 
     def _finalize(self, reset_preroll: bool = True) -> SpeechSegment | None:
+        """Assemble the buffered frames into a SpeechSegment, apply padding trim, and reset state."""
         samples = (
             np.concatenate(self._buf) if self._buf else np.empty(0, dtype=np.int16)
         )

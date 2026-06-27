@@ -36,6 +36,7 @@ _TIMESTAMP_PREFIX = re.compile(r"^\s*\[[0-9:.\s>\-]+\]\s*")
 
 class ParakeetCppBackend(ASRBackend):
     def __init__(self, config: ASRConfig):
+        """Initialise the backend; warn once if the binary or model file is missing."""
         self._bin = config.parakeet_bin
         self._model = config.parakeet_model
         self._decoder = config.parakeet_decoder
@@ -68,10 +69,12 @@ class ParakeetCppBackend(ASRBackend):
 
     @property
     def _enabled(self) -> bool:
+        """Return True when both the binary and the model GGUF are available."""
         return self._resolved_bin is not None and bool(self._model)
 
     @property
     def available(self) -> bool:
+        """Return True when this backend is ready to transcribe audio."""
         return self._enabled
 
     def _build_command(self, wav_path: str) -> list[str]:
@@ -113,6 +116,7 @@ class ParakeetCppBackend(ASRBackend):
         return " ".join(lines).strip()
 
     def transcribe(self, samples: np.ndarray, sample_rate: int) -> str:
+        """Write *samples* to a temp WAV, run parakeet-cli, and return the recognised text."""
         # バイナリ／モデルが無ければ何もせず空テキストを返す（ログ汚染・例外を避ける）。
         if not self._enabled:
             return ""

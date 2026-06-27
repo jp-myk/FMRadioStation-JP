@@ -275,24 +275,30 @@ class ASRConfig:
     # --- 派生値 ---
     @property
     def frame_sec(self) -> float:
+        """Duration of one VAD frame in seconds."""
         return self.vad_frame_samples / self.sample_rate
 
     @property
     def silence_end_frames(self) -> int:
+        """Number of consecutive silent frames required to end a speech segment."""
         return max(1, round((self.silence_end_ms / 1000.0) / self.frame_sec))
 
     @property
     def min_speech_frames(self) -> int:
+        """Minimum number of speech frames a segment must contain to be kept."""
         return max(1, round((self.min_speech_ms / 1000.0) / self.frame_sec))
 
     @property
     def max_segment_samples(self) -> int:
+        """Maximum segment length in samples before a forced cut is applied."""
         return int(self.max_segment_sec * self.sample_rate)
 
     @property
     def context_samples(self) -> int:
+        """Pre-roll context length in samples prepended to each speech segment."""
         return int(self.context_sec * self.sample_rate)
 
     @property
     def speech_pad_samples(self) -> int:
+        """Number of trailing silence samples retained as padding after each segment."""
         return int((self.speech_pad_ms / 1000.0) * self.sample_rate)

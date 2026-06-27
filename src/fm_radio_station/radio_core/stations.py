@@ -46,10 +46,12 @@ _station_map: dict[str, dict] = {s["id"]: s for s in STATIONS}
 
 
 def get_station(station_id: str) -> dict | None:
+    """Return the station dict for *station_id*, or None if not found."""
     return _station_map.get(station_id)
 
 
 def get_station_freq(station_id: str) -> float:
+    """Return the centre frequency (Hz) for *station_id*, raising KeyError if unknown."""
     station = _station_map.get(station_id)
     if station is None:
         raise KeyError(f"Unknown station ID: {station_id}")

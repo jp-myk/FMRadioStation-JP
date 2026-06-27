@@ -32,6 +32,7 @@ _LOG_LINE = re.compile(r"^\s*(llama_|ggml_|mtmd_|clip_|main:|encoding|decoding)"
 
 class LlamaMtmdBackend(ASRBackend):
     def __init__(self, config: ASRConfig):
+        """Initialise the backend; warn once if the binary or model files are missing."""
         self._bin = config.llama_bin
         self._model = config.qwen_model
         self._mmproj = config.qwen_mmproj
@@ -62,6 +63,7 @@ class LlamaMtmdBackend(ASRBackend):
 
     @property
     def _enabled(self) -> bool:
+        """Return True when the binary, model GGUF, and mmproj GGUF are all available."""
         return (
             self._resolved_bin is not None
             and bool(self._model)
@@ -70,6 +72,7 @@ class LlamaMtmdBackend(ASRBackend):
 
     @property
     def available(self) -> bool:
+        """Return True when this backend is ready to transcribe audio."""
         return self._enabled
 
     def _build_command(self, wav_path: str) -> list[str]:
@@ -121,6 +124,7 @@ class LlamaMtmdBackend(ASRBackend):
         return re.sub(r"<[^>]*>", "", text).strip()
 
     def transcribe(self, samples: np.ndarray, sample_rate: int) -> str:
+        """Write *samples* to a temp WAV, run llama-mtmd-cli, and return the recognised text."""
         # バイナリ／モデルが無ければ何もせず空テキストを返す（ログ汚染・例外を避ける）。
         if not self._enabled:
             return ""

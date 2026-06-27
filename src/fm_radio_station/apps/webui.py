@@ -91,6 +91,7 @@ _radiko_client = RadikoClient()
 
 
 def load_state():
+    """Load recording state from the JSON state file, parsing datetime strings back to objects."""
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             raw_state = json.load(f)
@@ -104,6 +105,7 @@ def load_state():
 
 
 def save_state(state):
+    """Persist the current recording state dict to the JSON state file."""
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=4, default=convert_datetime)
 
@@ -115,6 +117,7 @@ COMPLETED_RECORDINGS = state_data.get("completed", [])
 
 
 def update_global_state():
+    """Rebuild state_data from the global lists and write it to disk."""
     global state_data
     state_data = {
         "scheduled": SCHEDULED_RECORDINGS,
@@ -215,6 +218,7 @@ def _vtt_path_for(wav_basename: str) -> str:
 
 
 def _has_vtt(wav_basename: str) -> bool:
+    """Return True if a WebVTT subtitle sidecar already exists for *wav_basename*."""
     return os.path.exists(_vtt_path_for(wav_basename))
 
 
@@ -315,6 +319,7 @@ def _cleanup_stream(station_id: str, recv_ref: list, fifo_path: str):
 # ------------------------------
 # ＜録音処理＞
 def record_radio(station_id, output_file, duration, title, start_time, program_detail):
+    """Record a radio broadcast to *output_file* for *duration* seconds, updating global state."""
     station = get_station(station_id)
     if station is None:
         logger.warning(f"不明な局: {station_id}")
@@ -408,6 +413,7 @@ def record_radio(station_id, output_file, duration, title, start_time, program_d
 # ＜ページルート＞
 @app.get("/")
 def index(request: Request):
+    """Render the dashboard index page with scheduled, in-progress, and completed recording counts."""
     return templates.TemplateResponse(request, "index.html", {
         "scheduled": SCHEDULED_RECORDINGS,
         "in_progress": IN_PROGRESS_RECORDINGS,
@@ -417,6 +423,7 @@ def index(request: Request):
 
 @app.get("/on-air")
 def on_air(request: Request):
+    """Render the on-air live-listening page, passing ASR availability to the template."""
     # 自動字幕トグルの初期状態をサーバレンダリング（チラつき防止／asr_core 不在時は非表示）。
     return templates.TemplateResponse(
         request,
@@ -427,6 +434,7 @@ def on_air(request: Request):
 
 @app.get("/programs")
 def programs(request: Request):
+    """Render the programme guide page with yesterday/today/tomorrow schedules for all stations."""
     today = datetime.datetime.now(JST).date()
     yesterday = today - datetime.timedelta(days=1)
     tomorrow = today + datetime.timedelta(days=1)
@@ -466,6 +474,7 @@ def programs(request: Request):
 
 @app.get("/recording")
 def recording(request: Request):
+    """Render the currently-in-progress recordings page."""
     return templates.TemplateResponse(request, "recording.html", {
         "in_progress": IN_PROGRESS_RECORDINGS,
     })
@@ -474,6 +483,7 @@ def recording(request: Request):
 @app.get("/recorded")
 @app.get("/recordings")
 def recorded(request: Request):
+    """Render the completed recordings page, including subtitle availability for each file."""
     files = [f for f in os.listdir(RECORDINGS_DIR) if f.endswith(".wav")]
     # 完了録音／ファイルのみ、両方のカードで字幕の有無を判定できるようにする
     vtt_map = {f: _has_vtt(f) for f in files}
@@ -491,6 +501,7 @@ def recorded(request: Request):
 
 @app.get("/reservations")
 def reservations(request: Request):
+    """Render the scheduled reservations page."""
     return templates.TemplateResponse(request, "reservations.html", {
         "scheduled": SCHEDULED_RECORDINGS,
     })
@@ -498,6 +509,7 @@ def reservations(request: Request):
 
 @app.get('/recordings/{filename:path}')
 def serve_recordings(filename: str):
+    """Serve a recording file (WAV, JSON, or VTT) from the recordings directory."""
     return FileResponse(os.path.join(RECORDINGS_DIR, filename))
 
 
@@ -511,6 +523,7 @@ def schedule_recording(
     duration: int = Form(...),
     program_id: str = Form(None),
 ):
+    """Accept a recording reservation form submission, persist it, and schedule a timer thread."""
     safe_title = sanitize_filename(title)
     safe_start = start_time.replace(" ", "_").replace(":", "-")
     output_file = os.path.join(RECORDINGS_DIR, f"{safe_start}_{station_id}_{safe_title}.wav")
@@ -545,6 +558,7 @@ def schedule_recording(
 # ＜JSON API＞
 @app.get("/api/dashboard")
 def api_dashboard():
+    """Return a summary count of scheduled, in-progress, and completed recordings."""
     return {
         "scheduled": len(SCHEDULED_RECORDINGS),
         "in_progress": len(IN_PROGRESS_RECORDINGS),
@@ -554,6 +568,7 @@ def api_dashboard():
 
 @app.get("/api/on-air")
 def api_on_air(refresh: int = 0):
+    """Return current on-air programme info for every station, fetching in parallel threads."""
     now = datetime.datetime.now(JST)
     # refresh=1（「更新」ボタン）時は番組表キャッシュを無視して強制再取得し、
     # オフライン中にキャッシュされた空結果を最新の番組情報で置き換える。
@@ -562,6 +577,7 @@ def api_on_air(refresh: int = 0):
     lock = threading.Lock()
 
     def fetch_station(station):
+        """Fetch the currently airing programme for one station and append it to results."""
         # STATIONS を基準に必ず 1 局 1 エントリを返す。Radiko 番組表が取得できた局には
         # 現在放送中の番組を載せ、取れない局（オフライン／番組の谷間）は placeholder を
         # 返す。これにより Radiko API 不通でも全局の局名＋再生ボタンが表示される。
@@ -629,6 +645,7 @@ def api_on_air(refresh: int = 0):
 
 @app.get("/api/recording")
 def api_recording():
+    """Return elapsed/remaining time details for all currently in-progress recordings."""
     now = datetime.datetime.now(JST)
     items = []
     for item in IN_PROGRESS_RECORDINGS:
@@ -652,6 +669,7 @@ def api_recording():
 
 @app.delete("/api/recording/{idx}")
 def api_cancel_recording(idx: int):
+    """Signal the recording at index *idx* to stop early by setting its stop event."""
     with _state_lock:
         if idx < 0 or idx >= len(IN_PROGRESS_RECORDINGS):
             return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
@@ -665,6 +683,7 @@ def api_cancel_recording(idx: int):
 
 @app.get("/api/recorded")
 def api_recorded():
+    """Return metadata for all completed recordings, including file existence on disk."""
     items = []
     for item in COMPLETED_RECORDINGS:
         start = item["start_time"]
@@ -685,6 +704,7 @@ def api_recorded():
 
 @app.get("/api/reservations")
 def api_reservations():
+    """Return all scheduled recording reservations as a JSON list."""
     items = []
     for item in SCHEDULED_RECORDINGS:
         start = item["start_time"]
@@ -702,6 +722,7 @@ def api_reservations():
 
 
 def _delete_recording_files(output: str):
+    """Delete the WAV file at *output* and its companion JSON sidecar, silently ignoring errors."""
     if output and os.path.exists(output):
         try:
             os.remove(output)
@@ -717,6 +738,7 @@ def _delete_recording_files(output: str):
 
 @app.delete("/api/recorded/{idx}")
 def api_delete_recorded(idx: int):
+    """Remove the completed recording at *idx* from state and delete its files from disk."""
     with _state_lock:
         if idx < 0 or idx >= len(COMPLETED_RECORDINGS):
             return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
@@ -728,6 +750,7 @@ def api_delete_recorded(idx: int):
 
 @app.delete("/api/recorded/files/{filename:path}")
 def api_delete_recorded_file(filename: str):
+    """Delete a recording file by filename (WAV + JSON + VTT sidecars) from the recordings dir."""
     filepath = os.path.join(RECORDINGS_DIR, os.path.basename(filename))
     _delete_recording_files(filepath)
     # 字幕サイドカーも一緒に削除し、状態もクリアする
@@ -779,6 +802,7 @@ def api_transcribe_status(filename: str):
 
 @app.delete("/api/reservations/{idx}")
 def api_delete_reservation(idx: int):
+    """Remove the scheduled reservation at *idx* from the list and persist state."""
     with _state_lock:
         if idx < 0 or idx >= len(SCHEDULED_RECORDINGS):
             return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
@@ -792,6 +816,7 @@ def api_delete_reservation(idx: int):
 # ＜ストリーミング＞
 @app.get("/api/stream-status/{station_id}")
 def api_stream_status(station_id: str):
+    """Return whether live or timeshift streaming is available for *station_id*."""
     station = get_station(station_id)
     if station is None:
         return JSONResponse(content={"available": False, "reason": "局が見つかりません"}, status_code=404)
@@ -873,6 +898,7 @@ async def api_asr_set(request: Request):
 
 @app.post("/api/stop-stream")
 def api_stop_stream():
+    """Stop all active SDR streams and wait for the SDR lock to be released before responding."""
     # スナップショットを取り（pre-clear しない）、各エントリを identity ベースの
     # _teardown_stream に委ねる。受信機の停止と _sdr_lock 解放はクレームした
     # 1 人だけが行うため、接続クローズ起因の _cleanup_stream と競合しても
@@ -908,6 +934,7 @@ def stream_from_recording(
 
     if use_mp3:
         def generate():
+            """Run ffmpeg to transcode timeshift WAV PCM to MP3 and yield output chunks."""
             ffmpeg_proc = None
             try:
                 ffmpeg_proc = subprocess.Popen(
@@ -922,6 +949,7 @@ def stream_from_recording(
                 )
 
                 def forward_pcm():
+                    """Tail the growing WAV file and pipe PCM into ffmpeg's stdin."""
                     try:
                         with open(wav_path, "rb") as f:
                             f.seek(WAV_HEADER_SIZE)
@@ -967,6 +995,7 @@ def stream_from_recording(
         )
 
     def generate():
+        """Stream the timeshift WAV as MP3 via stream_growing_wav_as_mp3."""
         try:
             yield from stream_growing_wav_as_mp3(
                 wav_path,
@@ -988,6 +1017,7 @@ def stream_from_recording(
 
 @app.get("/stream/{station_id}")
 def stream_audio(station_id: str, request: Request, asr: int = 1):
+    """Start an SDR live stream for *station_id*, or timeshift if a recording is in progress."""
     station = get_station(station_id)
     if station is None:
         return JSONResponse(content={"error": "局が見つかりません"}, status_code=404)
@@ -1045,6 +1075,7 @@ def stream_audio(station_id: str, request: Request, asr: int = 1):
 
     if use_mp3:
         def generate():
+            """Run ffmpeg to transcode live FIFO PCM to MP3 and yield output chunks."""
             ffmpeg_proc = None
             try:
                 ffmpeg_proc = subprocess.Popen(
@@ -1059,6 +1090,7 @@ def stream_audio(station_id: str, request: Request, asr: int = 1):
                 )
 
                 def forward_pcm():
+                    """Read PCM from the SDR FIFO and pipe it into ffmpeg's stdin."""
                     try:
                         # GNU Radio 起動待ちの間、2秒分の無音PCMを先行送信
                         ffmpeg_proc.stdin.write(bytes(16000 * 2 * 2))
@@ -1101,6 +1133,7 @@ def stream_audio(station_id: str, request: Request, asr: int = 1):
         )
 
     def generate():
+        """Stream live SDR audio as MP3 via stream_fd_as_mp3 and clean up on exit."""
         try:
             yield from stream_fd_as_mp3(rfd, on_pcm=_on_pcm if enable_asr else None)
         finally:
@@ -1116,6 +1149,7 @@ def stream_audio(station_id: str, request: Request, asr: int = 1):
 # ------------------------------
 # ＜起動時の再スケジュール＞
 def reschedule_pending():
+    """Re-arm timer threads for future reservations surviving a server restart; drop stale entries."""
     # 前プロセスで中途終了した録音はイベント/スレッドが存在しないため削除する
     if IN_PROGRESS_RECORDINGS:
         with _state_lock:
@@ -1147,6 +1181,7 @@ def reschedule_pending():
 
 # ------------------------------
 def _select_webui_port(default_port: int = 5000) -> int:
+    """Return a free port starting at *default_port*, honouring WEBUI_PORT / PORT env vars."""
     env_port = os.environ.get("WEBUI_PORT") or os.environ.get("PORT")
     if env_port:
         return int(env_port)

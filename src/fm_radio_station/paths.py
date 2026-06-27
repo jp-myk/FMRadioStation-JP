@@ -18,11 +18,13 @@ def _base() -> Path:
 
 
 def config_dir() -> Path:
+    """Return the configuration directory (env CONFIG_DIR or <base>/config)."""
     env = os.environ.get("CONFIG_DIR")
     return Path(env) if env else _base() / "config"
 
 
 def data_dir() -> Path:
+    """Return the data directory (env DATA_DIR or <base>/data)."""
     env = os.environ.get("DATA_DIR")
     return Path(env) if env else _base() / "data"
 
@@ -40,6 +42,7 @@ def cache_dir() -> Path:
 
 
 def recordings_dir() -> Path:
+    """Return the recordings directory (env RECORDINGS_DIR or <base>/recordings)."""
     env = os.environ.get("RECORDINGS_DIR")
     return Path(env) if env else _base() / "recordings"
 
@@ -56,20 +59,24 @@ def web_dir() -> Path:
 
 
 def asr_config_file() -> Path:
+    """Return the ASR YAML config path (env ASR_CONFIG or <config>/asr.yaml)."""
     env = os.environ.get("ASR_CONFIG")
     return Path(env) if env else config_dir() / "asr.yaml"
 
 
 def vad_config_file() -> Path:
+    """Return the VAD YAML config path (env VAD_CONFIG or <config>/vad.yaml)."""
     env = os.environ.get("VAD_CONFIG")
     return Path(env) if env else config_dir() / "vad.yaml"
 
 
 def tunnels_config_file() -> Path:
+    """Return the station list YAML path (env TUNNELS_CONFIG or <config>/tunnels.yaml)."""
     env = os.environ.get("TUNNELS_CONFIG")
     return Path(env) if env else config_dir() / "tunnels.yaml"
 
 
 def log_dir() -> Path:
+    """Return the log directory (env LOG_DIR or <base>/log)."""
     env = os.environ.get("LOG_DIR")
     return Path(env) if env else _base() / "log"

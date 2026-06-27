@@ -61,6 +61,7 @@ class StreamingASRService:
 
     # ------------------------------------------------------------------ 起動/停止
     async def start(self) -> None:
+        """Initialise VAD, ASR backend, segmenter, queues, and start the consumer task."""
         if self._started:
             return
         # 重い初期化はここで明示的に行う
@@ -76,6 +77,7 @@ class StreamingASRService:
         self._started = True
 
     async def aclose(self) -> None:
+        """Drain remaining audio, flush the segmenter, shut down executor, and stop the consumer."""
         if not self._started:
             return
         # consumer に終端を伝える
@@ -90,10 +92,12 @@ class StreamingASRService:
         self._started = False
 
     async def __aenter__(self) -> "StreamingASRService":
+        """Start the service and return self for use as an async context manager."""
         await self.start()
         return self
 
     async def __aexit__(self, *exc) -> None:
+        """Close the service when exiting the async context manager."""
         await self.aclose()
 
     # ------------------------------------------------------------------ 公開 API
@@ -117,6 +121,7 @@ class StreamingASRService:
 
     # ------------------------------------------------------------------ 内部
     async def _consume(self) -> None:
+        """Drain the input queue, re-frame into VAD-sized chunks, and process each frame."""
         frame_n = self._cfg.vad_frame_samples
         while True:
             item = await self._input_q.get()
@@ -139,6 +144,7 @@ class StreamingASRService:
                 self._process_frame(frame)
 
     def _process_frame(self, frame: np.ndarray) -> None:
+        """Run VAD on one frame, update the segmenter, and dispatch any confirmed segments."""
         frame = np.ascontiguousarray(frame, dtype=np.int16)
         self._append_fallback_frame(frame)
         prob = self._vad.probability(frame)
@@ -154,17 +160,20 @@ class StreamingASRService:
         self._samples_seen += frame.shape[0]
 
     def _append_fallback_frame(self, frame: np.ndarray) -> None:
+        """Accumulate *frame* into the live-fallback buffer for fixed-length dispatch."""
         if self._fallback_len == 0:
             self._fallback_start_sample = self._samples_seen
         self._fallback_buf.append(frame)
         self._fallback_len += frame.shape[0]
 
     def _reset_fallback_buffer(self) -> None:
+        """Clear the live-fallback buffer after a VAD segment was confirmed or dispatched."""
         self._fallback_buf = []
         self._fallback_len = 0
         self._fallback_start_sample = self._samples_seen
 
     def _maybe_dispatch_fallback(self) -> None:
+        """Dispatch a fixed-length fallback segment when the buffer is full and audio is loud enough."""
         target_samples = int(self._cfg.live_fallback_segment_sec * self._cfg.sample_rate)
         if target_samples <= 0 or self._fallback_len < target_samples:
             return
@@ -186,6 +195,7 @@ class StreamingASRService:
         )
 
     def _dispatch(self, seg: SpeechSegment) -> None:
+        """Assign a result ID to *seg* and schedule an ASR task for it."""
         seg.segment_id = self._next_result_id
         self._next_result_id += 1
         task = asyncio.create_task(self._run_asr(seg))
@@ -193,6 +203,7 @@ class StreamingASRService:
         task.add_done_callback(self._asr_tasks.discard)
 
     async def _run_asr(self, seg: SpeechSegment) -> None:
+        """Transcribe *seg* in the thread-pool executor and enqueue the result."""
         loop = asyncio.get_running_loop()
         try:
             text = await loop.run_in_executor(

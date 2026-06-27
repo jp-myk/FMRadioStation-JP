@@ -10,6 +10,7 @@ from fm_radio_station.asr_core.config import ASRConfig
 
 
 def build_backend(config: ASRConfig) -> ASRBackend:
+    """Instantiate and return the ASR backend selected by *config.backend*."""
     if config.backend == "parakeet_cpp":
         return ParakeetCppBackend(config)
     if config.backend == "llama_mtmd":

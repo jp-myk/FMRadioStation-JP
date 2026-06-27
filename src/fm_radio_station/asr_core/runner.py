@@ -23,6 +23,7 @@ from fm_radio_station.asr_core.service import StreamingASRService
 
 class ThreadedASRSession:
     def __init__(self, config: ASRConfig | None = None):
+        """Store configuration; the asyncio loop and service are created lazily in start()."""
         self._config = config or ASRConfig()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -81,13 +82,16 @@ class ThreadedASRSession:
 
     # ------------------------------------------------------------------ 内部
     def _run_loop(self) -> None:
+        """Run the asyncio event loop forever in the background thread."""
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
     def _run_coro(self, coro):
+        """Schedule *coro* on the background loop and return a concurrent.futures.Future."""
         return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
     def _shutdown_loop(self) -> None:
+        """Stop the background event loop and join its thread."""
         if self._loop is None:
             return
         self._loop.call_soon_threadsafe(self._loop.stop)

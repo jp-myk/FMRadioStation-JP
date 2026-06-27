@@ -20,6 +20,7 @@ from fm_radio_station.asr_core.config import ASRConfig
 
 class SileroVad:
     def __init__(self, config: ASRConfig):
+        """Load the silero-vad ONNX model and initialise LSTM state."""
         if ort is None:
             raise ImportError("onnxruntime が必要です（pip install onnxruntime）")
         self._sample_rate = config.sample_rate
@@ -37,6 +38,7 @@ class SileroVad:
 
     @property
     def frame_samples(self) -> int:
+        """Expected number of samples per VAD frame (e.g. 512 at 16 kHz)."""
         return self._frame_samples
 
     def reset(self) -> None:

@@ -86,6 +86,7 @@ class RadioRecorder:
     """録音処理とSDRデバイスリソースの管理を行うクラス。"""
 
     def __init__(self, config: RadioConfig):
+        """Initialise the recorder and create the output directory."""
         self.config = config
         self._lock = threading.Lock()
         os.makedirs(self.config.rec_dir, exist_ok=True)
@@ -169,6 +170,7 @@ class RadioScheduler:
     """番組表を監視し、録音タスクをスケジュールするクラス。"""
 
     def __init__(self, config: RadioConfig, client: RadikoClient, recorder: RadioRecorder):
+        """Initialise the scheduler with its configuration, Radiko client, and recorder."""
         self.config = config
         self.client = client
         self.recorder = recorder
@@ -176,11 +178,13 @@ class RadioScheduler:
         self._lock = threading.Lock()
 
     def _on_record_complete(self, program_unique_id: str):
+        """Remove a finished recording task from the scheduled-IDs set."""
         with self._lock:
             logger.info(f"Removing finished task from schedule list: {program_unique_id}")
             self.scheduled_ids.discard(program_unique_id)
 
     def _schedule_task(self, program: RadioProgram):
+        """Schedule a threading.Timer to record *program* at its start time, if not already queued."""
         now = datetime.datetime.now(JST)
 
         if program.end_time < now:
@@ -208,6 +212,7 @@ class RadioScheduler:
             self.scheduled_ids.add(program.unique_id)
 
     def _check_and_schedule_programs(self):
+        """Fetch the programme guide for each configured station and schedule any upcoming broadcasts."""
         logger.info("----- Starting program guide check -----")
         for station_id in self.config.stations_to_record:
             logger.info(f"Fetching schedule for {station_id}...")
@@ -218,6 +223,7 @@ class RadioScheduler:
             time.sleep(1)
 
     def run(self):
+        """Run the scheduler loop, polling the programme guide at each configured interval."""
         logger.info("Radio Scheduler started.")
         logger.info(f"Recording target stations: {', '.join(self.config.stations_to_record)}")
         try:
@@ -237,6 +243,7 @@ class RadioScheduler:
 # メイン処理
 # -----------------------------------------------------------------------------
 def main():
+    """Entry point: parse CLI args, configure logging, and start the scheduler."""
     try:
         config = RadioConfig.from_args()
     except (ValueError, FileNotFoundError) as e:

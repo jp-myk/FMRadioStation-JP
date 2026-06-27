@@ -33,6 +33,7 @@ def stream_fd_as_mp3(
     )
 
     def feed():
+        """Read PCM from the FIFO and pipe it into ffmpeg's stdin, preceded by startup silence."""
         try:
             # GNU Radio 起動待ち(2〜5秒)の間、無音PCMを先行送信してブラウザのストールを防ぐ
             silence = bytes(int(SAMPLE_RATE * startup_silence_sec) * CHANNELS * 2)
@@ -76,6 +77,7 @@ def stream_growing_wav_as_mp3(
     )
 
     def feed():
+        """Tail the growing WAV file and pipe its PCM data into ffmpeg's stdin."""
         try:
             with open(wav_path, "rb") as f:
                 f.seek(WAV_HEADER_SIZE)

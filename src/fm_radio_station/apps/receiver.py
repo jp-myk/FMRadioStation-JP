@@ -27,6 +27,7 @@ from fm_radio_station.radio_core.stations import STATIONS, get_station
 
 
 def main():
+    """Parse CLI arguments and record a single FM/AM broadcast to a WAV file."""
     fm_stations = [s for s in STATIONS if s["type"] == "fm"]
     am_stations = [s for s in STATIONS if s["type"] == "am"]
 

@@ -12,26 +12,32 @@ try:
             """Small osmosdr.source-compatible wrapper around GNU Radio's Soapy source."""
 
             def __init__(self, args=""):
+                """Initialise the Soapy RTL-SDR source with optional device args."""
                 dev_args = "driver=rtlsdr"
                 if args and "rtl" in args.lower():
                     dev_args = args
                 self._source = _soapy.source(dev_args, "fc32", 1, "", "", [""], [""])
 
             def set_sample_rate(self, sample_rate):
+                """Set the SDR sample rate in samples per second."""
                 self._source.set_sample_rate(0, sample_rate)
 
             def set_center_freq(self, freq):
+                """Set the SDR centre frequency in Hz."""
                 self._source.set_frequency(0, freq)
 
             def set_gain(self, gain):
+                """Set the SDR RF gain."""
                 self._source.set_gain(0, gain)
 
             def __getattr__(self, name):
+                """Delegate unknown attribute lookups to the underlying Soapy source."""
                 return getattr(self._source, name)
 
         class _SoapyOsmoCompat:
             @staticmethod
             def source(args=""):
+                """Return a _SoapySourceAdapter instance (osmosdr.source drop-in)."""
                 return _SoapySourceAdapter(args)
 
         osmosdr = _SoapyOsmoCompat()
@@ -44,6 +50,7 @@ except ImportError as e:
 class FMReceiver(gr.top_block):
     """FM放送受信・WAVファイル出力フローグラフ。"""
     def __init__(self, freq, sdr_sample_rate, output_file, desired_audio_rate, bit_rate, gain):
+        """Build the FM receive flowgraph: SDR source → LPF → WBFM demod → de-emphasis → WAV sink."""
         gr.top_block.__init__(self, "FM Receiver")
 
         decim1 = max(1, int(round(sdr_sample_rate / (desired_audio_rate * 10))))
@@ -98,6 +105,7 @@ class FMReceiver(gr.top_block):
 class AMReceiver(gr.top_block):
     """AM放送受信・WAVファイル出力フローグラフ（rational_resampler + hq_filter）。"""
     def __init__(self, freq, sdr_sample_rate, output_file, desired_audio_rate, bit_rate, gain):
+        """Build the AM receive flowgraph: SDR source → LPF → envelope demod → WAV sink."""
         gr.top_block.__init__(self, "AM Receiver")
 
         decim = int(sdr_sample_rate / (desired_audio_rate * 4))
@@ -141,6 +149,7 @@ class AMReceiver(gr.top_block):
 class StreamingFMReceiver(gr.top_block):
     """FMReceiverと同じパイプラインだが出力をFIFOへの生int16 PCMにする。"""
     def __init__(self, freq, sdr_sample_rate, fifo_path, desired_audio_rate=16000, gain=40):
+        """Build the FM streaming flowgraph: SDR source → WBFM → int16 PCM → FIFO."""
         gr.top_block.__init__(self, "FM Streaming Receiver")
 
         decim1 = max(1, int(round(sdr_sample_rate / (desired_audio_rate * 10))))
@@ -204,6 +213,7 @@ class StreamingFMReceiver(gr.top_block):
 class StreamingAMReceiver(gr.top_block):
     """AM放送ストリーミング用。エンベロープ検波でFIFOへ生int16 PCMを出力する。"""
     def __init__(self, freq, sdr_sample_rate, fifo_path, desired_audio_rate=16000, gain=40):
+        """Build the AM streaming flowgraph: SDR source → envelope demod → int16 PCM → FIFO."""
         gr.top_block.__init__(self, "AM Streaming Receiver")
 
         decim = int(sdr_sample_rate / (desired_audio_rate * 4))

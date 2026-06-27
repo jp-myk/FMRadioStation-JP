@@ -27,6 +27,7 @@ class RadioProgram:
 
     @property
     def unique_id(self) -> str:
+        """Return a filesystem-safe identifier combining station, start time, and title."""
         return f"{self.station_id}_{self.start_time.strftime('%Y%m%d%H%M')}_{sanitize_filename(self.title)}"
 
 
@@ -34,6 +35,7 @@ class RadikoClient:
     """Radiko番組表API (XML) クライアント。キャッシュ機能付き。"""
 
     def __init__(self):
+        """Initialise the client with an empty in-memory programme cache."""
         self._cache: dict = {}
 
     def fetch_programs_for_station(
