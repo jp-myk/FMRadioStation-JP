@@ -1,0 +1,125 @@
+name: API Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/rest_api/openapi.yaml"
+      - "src/fm_radio_station/apps/webui.py"
+  pull_request:
+    paths:
+      - "docs/rest_api/openapi.yaml"
+      - "src/fm_radio_station/apps/webui.py"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── HTML ビルド・アーティファクト化・PR コメント投稿 ──────────────────────
+  build-docs:
+    name: Build API docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pyyaml
+        run: pip install pyyaml
+
+      - name: Generate Swagger UI HTML
+        run: python scripts/generate_api_docs.py
+
+      - name: Warn if committed index.html is stale
+        run: |
+          if ! git diff --exit-code docs/rest_api/index.html > /dev/null 2>&1; then
+            echo "::warning file=docs/rest_api/index.html::index.html is stale — run 'python scripts/generate_api_docs.py' and commit."
+            git diff --stat docs/rest_api/index.html
+          fi
+
+      - name: Upload HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-docs-html
+          path: docs/rest_api/index.html
+          retention-days: 7
+
+      - name: Post or update PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## API Docs Preview',
+              '',
+              'Swagger UI HTML を `openapi.yaml` から再生成しました。',
+              `[Actions run の artifact](${runUrl}) → \`api-docs-html\` をダウンロードして開くと確認できます（7日間保持）。`,
+              '',
+              '<!-- api-docs-bot -->',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(
+              c => c.user.type === 'Bot' && c.body.includes('<!-- api-docs-bot -->')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ── main マージ時のみ GitHub Pages にデプロイ ─────────────────────────────
+  # 事前準備: リポジトリの Settings → Pages → Source を "GitHub Actions" に設定してください。
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    needs: build-docs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Download HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: api-docs-html
+          path: ./site
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

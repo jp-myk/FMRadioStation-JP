@@ -518,19 +518,22 @@ def serve_recordings(filename: str):
 @app.post("/schedule")
 def schedule_recording(
     station_id: str = Form(...),
-    title: str = Form(...),
+    program_id: str = Form(...),
     start_time: str = Form(...),
     duration: int = Form(...),
-    program_id: str = Form(None),
+    title: str = Form(None),
 ):
     """Accept a recording reservation form submission, persist it, and schedule a timer thread."""
-    safe_title = sanitize_filename(title)
+    programs_list = _radiko_client.fetch_programs_as_dicts(station_id)
+    program_detail = next((p for p in programs_list if p.get("id") == program_id), None)
+    resolved_title = (program_detail["title"] if program_detail else None) or title or program_id
+    safe_title = sanitize_filename(resolved_title)
     safe_start = start_time.replace(" ", "_").replace(":", "-")
     output_file = os.path.join(RECORDINGS_DIR, f"{safe_start}_{station_id}_{safe_title}.wav")
 
     station = get_station(station_id)
     new_item = {
-        "title": title,
+        "title": resolved_title,
         "station_id": station_id,
         "station": station["name"] if station else "不明な局",
         "start_time": start_time,
@@ -542,20 +545,53 @@ def schedule_recording(
         SCHEDULED_RECORDINGS.append(new_item)
     update_global_state()
 
-    programs_list = _radiko_client.fetch_programs_as_dicts(station_id)
-    program_detail = next((p for p in programs_list if p.get("id") == program_id), None)
     start_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
     delay = max(0.0, (start_dt - datetime.datetime.now(JST)).total_seconds())
-    logger.info(f"予約確定: {title} ({start_dt})")
+    logger.info(f"予約確定: {resolved_title} ({start_dt})")
     threading.Timer(
         delay, record_radio,
-        args=(station_id, output_file, duration, title, start_time, program_detail)
+        args=(station_id, output_file, duration, resolved_title, start_time, program_detail)
     ).start()
     return RedirectResponse(url="/programs", status_code=302)
 
 
 # ------------------------------
 # ＜JSON API＞
+@app.get("/api/programs")
+def api_programs(station_id: str | None = None, date: str | None = None):
+    """Return cached programme list for the given station(s) and date.
+
+    date accepts YYYY-MM-DD or YYYYMMDD; defaults to today.
+    station_id filters to a single station; omit to return all stations.
+    """
+    if date:
+        date_str = date.replace("-", "")
+        try:
+            target_date = datetime.datetime.strptime(date_str, "%Y%m%d").date()
+        except ValueError:
+            return JSONResponse(content={"error": "date は YYYY-MM-DD または YYYYMMDD 形式で指定してください"}, status_code=400)
+    else:
+        target_date = datetime.datetime.now(JST).date()
+
+    stations = [s for s in STATIONS if station_id is None or s["id"] == station_id]
+    result = []
+    for station in stations:
+        for prog in _radiko_client.fetch_programs_cached(station["id"], target_date):
+            result.append({
+                "id": prog["id"],
+                "station_id": station["id"],
+                "title": prog["title"],
+                "start_time": prog["start_time"].strftime("%Y-%m-%d %H:%M:%S"),
+                "end_time": prog["end_time"].strftime("%Y-%m-%d %H:%M:%S"),
+                "duration": prog["duration"],
+                "ft": prog.get("ft"),
+                "to": prog.get("to"),
+                "info": prog.get("info"),
+                "pfm": prog.get("pfm"),
+            })
+    return result
+
+
 @app.get("/api/dashboard")
 def api_dashboard():
     """Return a summary count of scheduled, in-progress, and completed recordings."""
@@ -656,6 +692,7 @@ def api_recording():
         elapsed = max(0, (now - start).total_seconds())
         remaining = max(0, item["duration"] - elapsed)
         items.append({
+            "id": item.get("program_id", ""),
             "title": item["title"],
             "station_id": item["station_id"],
             "station_name": item.get("station_name", ""),
@@ -691,6 +728,7 @@ def api_recorded():
             start = start.strftime("%Y-%m-%d %H:%M:%S")
         output = item.get("output", "")
         items.append({
+            "id": item.get("program_id", ""),
             "title": item["title"],
             "station_id": item["station_id"],
             "station_name": item.get("station_name", ""),
@@ -711,12 +749,12 @@ def api_reservations():
         if isinstance(start, datetime.datetime):
             start = start.strftime("%Y-%m-%d %H:%M:%S")
         items.append({
+            "id": item.get("program_id", ""),
             "title": item["title"],
             "station_id": item["station_id"],
             "station": item.get("station", ""),
             "start_time": start,
             "duration": item["duration"],
-            "program_id": item.get("program_id", ""),
         })
     return items
 

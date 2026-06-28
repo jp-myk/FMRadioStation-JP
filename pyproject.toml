@@ -31,6 +31,12 @@ python-downloads = "never"
 requires = ["setuptools>=42"]
 build-backend = "setuptools.build_meta"
 
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "ruff>=0.15.20",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

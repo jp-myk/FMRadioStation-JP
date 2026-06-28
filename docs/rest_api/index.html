@@ -1,0 +1,1460 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FMRadioStation-JP API</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui.css">
+  <style>
+    body { margin: 0; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      spec: {
+  "openapi": "3.0.3",
+  "info": {
+    "title": "FMRadioStation-JP API",
+    "version": "1.0.0",
+    "description": "FMRadioStation-JP (FastAPI + RTL-SDR) の REST API 仕様。\n\n- すべての日時文字列は JST（Asia/Tokyo）で `YYYY-MM-DD HH:MM:SS` 形式。\n- ストリーミングエンドポイント (`GET /stream/{station_id}`) は `audio/mpeg` を返す。\n  Swagger UI の \"Try it out\" では再生できないため、ブラウザや curl で直接アクセスしてください。\n"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "実行中インスタンス（相対パス）"
+    }
+  ],
+  "tags": [
+    {
+      "name": "programs",
+      "description": "番組表（キャッシュ）の取得"
+    },
+    {
+      "name": "dashboard",
+      "description": "ダッシュボード集計"
+    },
+    {
+      "name": "on-air",
+      "description": "現在放送中の番組情報"
+    },
+    {
+      "name": "recording",
+      "description": "録音中（進行中）の管理"
+    },
+    {
+      "name": "recorded",
+      "description": "録音済みファイルの管理"
+    },
+    {
+      "name": "reservations",
+      "description": "録音予約の管理"
+    },
+    {
+      "name": "streaming",
+      "description": "ライブ／タイムシフト音声配信"
+    },
+    {
+      "name": "asr",
+      "description": "自動字幕（音声認識）の制御"
+    },
+    {
+      "name": "transcription",
+      "description": "録音ファイルの字幕生成（バッチ WebVTT）"
+    },
+    {
+      "name": "schedule",
+      "description": "録音予約フォーム送信"
+    }
+  ],
+  "paths": {
+    "/api/programs": {
+      "get": {
+        "tags": [
+          "programs"
+        ],
+        "summary": "番組表（キャッシュ）を取得",
+        "description": "指定した局・日付の番組リストをキャッシュから返す。\nキャッシュがない場合は Radiko から取得してキャッシュする（TTL=30分）。\n",
+        "operationId": "getPrograms",
+        "parameters": [
+          {
+            "name": "station_id",
+            "in": "query",
+            "required": false,
+            "description": "局 ID（例: `interfm`）。省略時は全局",
+            "schema": {
+              "type": "string"
+            },
+            "example": "interfm"
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "description": "対象日（`YYYY-MM-DD` または `YYYYMMDD`）。省略時は今日",
+            "schema": {
+              "type": "string"
+            },
+            "example": "2024-01-15"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "番組リスト（station_id / date が一致するすべての番組）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProgramItem"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "date パラメータの形式が不正",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "ダッシュボード集計を取得",
+        "operationId": "getDashboard",
+        "responses": {
+          "200": {
+            "description": "予約・録音中・完了の件数",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardResponse"
+                },
+                "example": {
+                  "scheduled": 2,
+                  "in_progress": 1,
+                  "completed": 10
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/on-air": {
+      "get": {
+        "tags": [
+          "on-air"
+        ],
+        "summary": "全局の現在放送中番組情報を取得",
+        "operationId": "getOnAir",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "1 を指定するとキャッシュを無視して Radiko から再取得する",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "enum": [
+                0,
+                1
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "STATIONS の順に並んだ局ごとの放送情報リスト",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OnAirItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recording": {
+      "get": {
+        "tags": [
+          "recording"
+        ],
+        "summary": "録音中ファイル一覧を取得",
+        "operationId": "listRecordings",
+        "responses": {
+          "200": {
+            "description": "録音中のエントリリスト（経過・残り時間付き）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordingItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recording/{idx}": {
+      "delete": {
+        "tags": [
+          "recording"
+        ],
+        "summary": "録音を中止する",
+        "operationId": "cancelRecording",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdxPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "中止成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelledResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "インデックスが範囲外",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "中止シグナルを送れなかった（録音スレッドが見つからない）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recorded": {
+      "get": {
+        "tags": [
+          "recorded"
+        ],
+        "summary": "録音済みファイル一覧を取得",
+        "operationId": "listRecorded",
+        "responses": {
+          "200": {
+            "description": "完了した録音のリスト",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordedItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recorded/files/{filename}": {
+      "delete": {
+        "tags": [
+          "recorded"
+        ],
+        "summary": "録音ファイルをディスクから削除する（WAV + JSON + VTT）",
+        "description": "ファイル名（パス区切りを含む場合あり）を指定して WAV・JSON・VTT のサイドカーをすべて削除する。\nファイルが存在しない場合もエラーにならず `{deleted}` を返す。\n\n**注意**: `filename` パラメータは FastAPI の `path` 型パラメータで、\nパス区切り文字（`/`）を含む値も受け付けるが、サーバー側では `os.path.basename()` で\nファイル名のみを使用する。\n",
+        "operationId": "deleteRecordedFile",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "description": "削除するファイル名（例: `2024-01-15_10-00-00_interfm_Morning.wav`）",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "削除成功（ファイルが存在しない場合も 200）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recorded/{idx}": {
+      "delete": {
+        "tags": [
+          "recorded"
+        ],
+        "summary": "完了録音を state から削除しファイルも消す",
+        "description": "完了録音リストのインデックスを指定して state から除去し、\nWAV・JSON サイドカーをディスクから削除する。\n",
+        "operationId": "deleteRecorded",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdxPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "削除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "インデックスが範囲外",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reservations": {
+      "get": {
+        "tags": [
+          "reservations"
+        ],
+        "summary": "録音予約一覧を取得",
+        "operationId": "listReservations",
+        "responses": {
+          "200": {
+            "description": "予約済みエントリのリスト",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReservationItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reservations/{idx}": {
+      "delete": {
+        "tags": [
+          "reservations"
+        ],
+        "summary": "録音予約を削除する",
+        "operationId": "deleteReservation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdxPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "削除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "インデックスが範囲外",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream-status/{station_id}": {
+      "get": {
+        "tags": [
+          "streaming"
+        ],
+        "summary": "指定局のストリーミング可否を確認する",
+        "operationId": "getStreamStatus",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StationIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ストリーミング可（live または timeshift）あるいは不可の理由",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamStatusResponse"
+                },
+                "examples": {
+                  "live": {
+                    "summary": "ライブ配信可能",
+                    "value": {
+                      "available": true,
+                      "mode": "live"
+                    }
+                  },
+                  "timeshift": {
+                    "summary": "タイムシフト配信可能（録音中）",
+                    "value": {
+                      "available": true,
+                      "mode": "timeshift"
+                    }
+                  },
+                  "unavailable": {
+                    "summary": "他の局を録音中",
+                    "value": {
+                      "available": false,
+                      "reason": "「NHK-FM」を録音中のため配信できません"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "局が見つからない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamUnavailableResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stream/{station_id}": {
+      "get": {
+        "tags": [
+          "streaming"
+        ],
+        "summary": "音声ストリームを取得する（MP3）",
+        "description": "指定局の音声を MP3 ストリームとして返す。\n\n- 対象局が**録音中**の場合はタイムシフト（WAV 先頭から追いかけ読み）を行う。\n- 録音中でない場合は SDR デバイスを占有してライブ配信する。\n- Safari は WAV ストリーミング非対応のため、User-Agent を検出して MP3 トランスコードパスを使用する。\n- SDR デバイスが利用中（別局ストリーミング中または別局録音中）の場合は 409 を返す。\n\n**Swagger UI の \"Try it out\" では再生できません。**\nブラウザで直接 URL を開くか、`curl` 等を使用してください。\n\n```\ncurl http://localhost:5000/stream/interfm --output - | ffplay -nodisp -\n```\n",
+        "operationId": "streamAudio",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StationIdPath"
+          },
+          {
+            "name": "asr",
+            "in": "query",
+            "description": "0 を指定すると自動字幕（音声認識）を無効化する",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "enum": [
+                0,
+                1
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "MP3 オーディオストリーム（chunked transfer）",
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "局が見つからない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SDR デバイスが使用中（他の局を録音中またはストリーミング中）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "SDR デバイスの初期化エラー",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stop-stream": {
+      "post": {
+        "tags": [
+          "streaming"
+        ],
+        "summary": "アクティブなストリームを停止する",
+        "description": "現在アクティブな全 SDR ストリームを停止し、SDR デバイスのロックが解放されるまで待機してから応答する。\nストリームが存在しない場合も `{stopped: true}` を返す。\n",
+        "operationId": "stopStream",
+        "responses": {
+          "200": {
+            "description": "停止成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "stopped": {
+                      "type": "boolean",
+                      "example": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/asr": {
+      "get": {
+        "tags": [
+          "asr"
+        ],
+        "summary": "自動字幕の有効状態を取得する",
+        "operationId": "getAsrState",
+        "responses": {
+          "200": {
+            "description": "有効状態と利用可否",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AsrStateResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "asr"
+        ],
+        "summary": "自動字幕の ON/OFF を切り替える",
+        "description": "`enabled: false` で即停止。`enabled: true` かつストリーミング中なら現在の局で即開始。\nストリーミングしていない場合は状態のみ更新し、次回ストリーム開始時に自動起動される。\n",
+        "operationId": "setAsrState",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AsrSetRequest"
+              },
+              "examples": {
+                "enable": {
+                  "summary": "ASR を有効化",
+                  "value": {
+                    "enabled": true,
+                    "station_id": "interfm"
+                  }
+                },
+                "disable": {
+                  "summary": "ASR を無効化",
+                  "value": {
+                    "enabled": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新後の有効状態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AsrStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transcript/{station_id}": {
+      "get": {
+        "tags": [
+          "asr"
+        ],
+        "summary": "自動字幕セグメントを取得する",
+        "description": "指定局の認識済み字幕セグメントを返す。ポーリングに対応しており、\n`since` に前回レスポンスの `cursor` を渡すことで差分のみ取得できる。\nブラウザは約 1.5 秒ごとにポーリングしている。\n",
+        "operationId": "getTranscript",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StationIdPath"
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "このインデックス以降のセグメントのみ返す（前回 cursor 値）",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "字幕セグメントリスト",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptResponse"
+                },
+                "examples": {
+                  "active": {
+                    "summary": "認識中（セグメントあり）",
+                    "value": {
+                      "station_id": "interfm",
+                      "available": true,
+                      "enabled": true,
+                      "active": true,
+                      "segments": [
+                        {
+                          "segment_id": 0,
+                          "text": "おはようございます",
+                          "t_start": 0.5,
+                          "t_end": 2.3
+                        }
+                      ],
+                      "cursor": 1
+                    }
+                  },
+                  "inactive": {
+                    "summary": "別局または未ストリーミング",
+                    "value": {
+                      "station_id": "interfm",
+                      "available": true,
+                      "enabled": true,
+                      "active": false,
+                      "segments": [],
+                      "cursor": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transcribe/{filename}": {
+      "post": {
+        "tags": [
+          "transcription"
+        ],
+        "summary": "録音ファイルの字幕生成を開始する（非同期）",
+        "description": "録音済み WAV ファイルを parakeet-cli / llama-mtmd-cli で一括文字起こしし、\nWebVTT サイドカー（`<base>.vtt`）を生成する。処理は単一ワーカーで直列実行される。\n\n**`filename` パラメータ**: FastAPI の `path` 型パラメータ（パス区切り対応）だが、\nサーバー側では `os.path.basename()` のみを使用する。\n",
+        "operationId": "startTranscription",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "description": "文字起こし対象の WAV ファイル名",
+            "schema": {
+              "type": "string"
+            },
+            "example": "2024-01-15_10-00-00_interfm_Morning.wav"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "開始または既に完了",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "running",
+                        "done"
+                      ],
+                      "description": "`done` はすでに VTT が存在する場合、`running` は新たに開始した場合"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "WAV ファイルが存在しない",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "字幕生成が利用不可（parakeet-cli / モデル未設定）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "transcription"
+        ],
+        "summary": "字幕生成の状態を確認する",
+        "operationId": "getTranscriptionStatus",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "description": "WAV ファイル名",
+            "schema": {
+              "type": "string"
+            },
+            "example": "2024-01-15_10-00-00_interfm_Morning.wav"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "字幕生成の現在状態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionStatusResponse"
+                },
+                "examples": {
+                  "idle": {
+                    "value": {
+                      "filename": "Morning.wav",
+                      "status": "idle",
+                      "has_vtt": false,
+                      "available": true
+                    }
+                  },
+                  "running": {
+                    "value": {
+                      "filename": "Morning.wav",
+                      "status": "running",
+                      "has_vtt": false,
+                      "available": true
+                    }
+                  },
+                  "done": {
+                    "value": {
+                      "filename": "Morning.wav",
+                      "status": "done",
+                      "has_vtt": true,
+                      "available": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/schedule": {
+      "post": {
+        "tags": [
+          "schedule"
+        ],
+        "summary": "録音予約を登録する",
+        "description": "フォーム送信で録音予約を作成し、タイマースレッドを起動する。\n成功時は `/programs` にリダイレクトする。\n",
+        "operationId": "scheduleRecording",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "302": {
+            "description": "予約成功 → `/programs` へリダイレクト",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/programs"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "IdxPath": {
+        "name": "idx",
+        "in": "path",
+        "required": true,
+        "description": "リスト内のゼロ始まりインデックス",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "StationIdPath": {
+        "name": "station_id",
+        "in": "path",
+        "required": true,
+        "description": "局 ID（例: `interfm`, `nhkfm`, `jwave`）",
+        "schema": {
+          "type": "string"
+        },
+        "example": "interfm"
+      }
+    },
+    "schemas": {
+      "ProgramItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "station_id",
+          "title",
+          "start_time",
+          "end_time",
+          "duration"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Radiko 番組 ID",
+            "example": "20240115INTERFM0700"
+          },
+          "station_id": {
+            "type": "string",
+            "example": "interfm"
+          },
+          "title": {
+            "type": "string",
+            "example": "Morning Show"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "番組開始時刻（JST, YYYY-MM-DD HH:MM:SS）",
+            "example": "2024-01-15 07:00:00"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "番組終了時刻（JST, YYYY-MM-DD HH:MM:SS）",
+            "example": "2024-01-15 09:00:00"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "番組長（秒）",
+            "example": 7200
+          },
+          "ft": {
+            "type": "string",
+            "description": "開始時刻（Radiko 形式 YYYYMMDDHHmmss）",
+            "example": "20240115070000"
+          },
+          "to": {
+            "type": "string",
+            "description": "終了時刻（Radiko 形式 YYYYMMDDHHmmss）",
+            "example": "20240115090000"
+          },
+          "info": {
+            "type": "string",
+            "nullable": true,
+            "description": "番組概要テキスト"
+          },
+          "pfm": {
+            "type": "string",
+            "nullable": true,
+            "description": "出演者情報"
+          }
+        }
+      },
+      "DashboardResponse": {
+        "type": "object",
+        "required": [
+          "scheduled",
+          "in_progress",
+          "completed"
+        ],
+        "properties": {
+          "scheduled": {
+            "type": "integer",
+            "description": "予約件数"
+          },
+          "in_progress": {
+            "type": "integer",
+            "description": "録音中件数"
+          },
+          "completed": {
+            "type": "integer",
+            "description": "録音完了件数"
+          }
+        }
+      },
+      "OnAirItem": {
+        "type": "object",
+        "required": [
+          "station_id",
+          "station_name",
+          "title",
+          "duration",
+          "elapsed",
+          "progress",
+          "has_program",
+          "is_recording"
+        ],
+        "properties": {
+          "station_id": {
+            "type": "string",
+            "example": "interfm"
+          },
+          "station_name": {
+            "type": "string",
+            "example": "InterFM897"
+          },
+          "title": {
+            "type": "string",
+            "example": "MORNING GLORY"
+          },
+          "start_time": {
+            "type": "string",
+            "nullable": true,
+            "description": "番組開始時刻（JST, YYYY-MM-DD HH:MM:SS）。番組情報なしの場合は null",
+            "example": "2024-01-15 07:00:00"
+          },
+          "end_time": {
+            "type": "string",
+            "nullable": true,
+            "description": "番組終了時刻（JST, YYYY-MM-DD HH:MM:SS）。番組情報なしの場合は null",
+            "example": "2024-01-15 09:00:00"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "番組長（秒）。番組情報なしの場合は 0",
+            "example": 7200
+          },
+          "elapsed": {
+            "type": "integer",
+            "description": "放送開始からの経過秒数",
+            "example": 1800
+          },
+          "progress": {
+            "type": "integer",
+            "description": "放送進捗率（0〜100 %）",
+            "example": 25
+          },
+          "info": {
+            "type": "string",
+            "nullable": true,
+            "description": "番組概要テキスト（Radiko から取得）"
+          },
+          "pfm": {
+            "type": "string",
+            "nullable": true,
+            "description": "出演者情報（Radiko から取得）"
+          },
+          "has_program": {
+            "type": "boolean",
+            "description": "番組情報が取得できたか"
+          },
+          "is_recording": {
+            "type": "boolean",
+            "description": "この局が現在録音中か"
+          }
+        }
+      },
+      "RecordingItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "station_id",
+          "station_name",
+          "start_time",
+          "end_time",
+          "duration",
+          "remaining"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Radiko 番組 ID",
+            "example": "20240115NHK_FM0700"
+          },
+          "title": {
+            "type": "string",
+            "example": "Morning Show"
+          },
+          "station_id": {
+            "type": "string",
+            "example": "nhkfm"
+          },
+          "station_name": {
+            "type": "string",
+            "example": "NHK-FM"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "録音開始時刻（JST, YYYY-MM-DD HH:MM:SS）",
+            "example": "2024-01-15 07:00:00"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "録音終了予定時刻（JST, YYYY-MM-DD HH:MM:SS）",
+            "example": "2024-01-15 09:00:00"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "録音時間（秒）",
+            "example": 7200
+          },
+          "remaining": {
+            "type": "integer",
+            "description": "残り録音時間（秒）",
+            "example": 3600
+          }
+        }
+      },
+      "CancelledResponse": {
+        "type": "object",
+        "required": [
+          "cancelled",
+          "title"
+        ],
+        "properties": {
+          "cancelled": {
+            "type": "boolean",
+            "example": true
+          },
+          "title": {
+            "type": "string",
+            "example": "Morning Show"
+          }
+        }
+      },
+      "RecordedItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "station_id",
+          "station_name",
+          "start_time",
+          "duration",
+          "filename",
+          "file_exists"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Radiko 番組 ID",
+            "example": "20240115NHK_FM0700"
+          },
+          "title": {
+            "type": "string",
+            "example": "Morning Show"
+          },
+          "station_id": {
+            "type": "string",
+            "example": "nhkfm"
+          },
+          "station_name": {
+            "type": "string",
+            "example": "NHK-FM"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "録音開始時刻（JST, YYYY-MM-DD HH:MM:SS）",
+            "example": "2024-01-15 07:00:00"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "録音時間（秒）",
+            "example": 7200
+          },
+          "filename": {
+            "type": "string",
+            "description": "WAV ファイル名（ベース名のみ）",
+            "example": "2024-01-15_07-00-00_nhkfm_Morning_Show.wav"
+          },
+          "file_exists": {
+            "type": "boolean",
+            "description": "WAV ファイルがディスク上に存在するか"
+          }
+        }
+      },
+      "ReservationItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "station_id",
+          "station",
+          "start_time",
+          "duration"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Radiko 番組 ID",
+            "example": "20240115NHK_FM0700"
+          },
+          "title": {
+            "type": "string",
+            "example": "Morning Show"
+          },
+          "station_id": {
+            "type": "string",
+            "example": "nhkfm"
+          },
+          "station": {
+            "type": "string",
+            "description": "局の表示名",
+            "example": "NHK-FM"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "録音開始時刻（JST, YYYY-MM-DD HH:MM:SS）",
+            "example": "2024-01-15 07:00:00"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "録音時間（秒）",
+            "example": 3600
+          }
+        }
+      },
+      "StreamStatusResponse": {
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "timeshift"
+            ],
+            "description": "`available: true` の場合のみ存在"
+          },
+          "reason": {
+            "type": "string",
+            "description": "`available: false` の場合の理由"
+          }
+        }
+      },
+      "StreamUnavailableResponse": {
+        "type": "object",
+        "required": [
+          "available",
+          "reason"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "example": false
+          },
+          "reason": {
+            "type": "string",
+            "example": "局が見つかりません"
+          }
+        }
+      },
+      "AsrStateResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "available"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "自動字幕が有効か（実行時設定、ENV で初期値が決まる）"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "ASR バックエンド（asr_core）が利用可能か"
+          }
+        }
+      },
+      "AsrSetRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "有効にする場合は true、無効にする場合は false"
+          },
+          "station_id": {
+            "type": "string",
+            "description": "有効化時に明示的に ASR を開始する局 ID（任意）",
+            "example": "interfm"
+          }
+        }
+      },
+      "TranscriptResponse": {
+        "type": "object",
+        "required": [
+          "station_id",
+          "available",
+          "enabled",
+          "active",
+          "segments",
+          "cursor"
+        ],
+        "properties": {
+          "station_id": {
+            "type": "string",
+            "example": "interfm"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "ASR セッションが現在アクティブか"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "自動字幕が有効か"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "この局で認識が進行中か（別局または未ストリーミングの場合は false）"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSegment"
+            }
+          },
+          "cursor": {
+            "type": "integer",
+            "description": "transcript リスト全体の末尾インデックス（次回 since に渡す値）"
+          }
+        }
+      },
+      "TranscriptSegment": {
+        "type": "object",
+        "required": [
+          "segment_id",
+          "text",
+          "t_start",
+          "t_end"
+        ],
+        "properties": {
+          "segment_id": {
+            "type": "integer",
+            "description": "セグメントのゼロ始まり通し番号"
+          },
+          "text": {
+            "type": "string",
+            "description": "認識テキスト",
+            "example": "おはようございます"
+          },
+          "t_start": {
+            "type": "number",
+            "format": "float",
+            "description": "セグメント開始時刻（ストリーム先頭からの秒数）",
+            "example": 0.5
+          },
+          "t_end": {
+            "type": "number",
+            "format": "float",
+            "description": "セグメント終了時刻（ストリーム先頭からの秒数）",
+            "example": 2.3
+          }
+        }
+      },
+      "TranscriptionStatusResponse": {
+        "type": "object",
+        "required": [
+          "filename",
+          "status",
+          "has_vtt",
+          "available"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "WAV ファイル名（ベース名）",
+            "example": "2024-01-15_07-00-00_nhkfm_Morning.wav"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "done",
+              "error"
+            ],
+            "description": "- `idle`: 未開始\n- `running`: 処理中\n- `done`: 完了（VTT あり）\n- `error`: エラーで失敗\n"
+          },
+          "has_vtt": {
+            "type": "boolean",
+            "description": "VTT サイドカーファイルが存在するか"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "バッチ字幕生成が利用可能か（parakeet-cli / llama-mtmd-cli が設定済みか）"
+          }
+        }
+      },
+      "ScheduleForm": {
+        "type": "object",
+        "required": [
+          "station_id",
+          "program_id",
+          "start_time",
+          "duration"
+        ],
+        "properties": {
+          "station_id": {
+            "type": "string",
+            "description": "局 ID",
+            "example": "interfm"
+          },
+          "program_id": {
+            "type": "string",
+            "description": "Radiko 番組 ID。番組タイトルはサーバー側でこの ID から解決する",
+            "example": "20240115INTERFM0700"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "録音開始時刻（JST, YYYY-MM-DD HH:MM:SS）",
+            "example": "2024-01-15 07:00:00"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "録音時間（秒）",
+            "example": 3600
+          },
+          "title": {
+            "type": "string",
+            "description": "録音タイトル（任意。省略時は program_id から自動解決）",
+            "example": "Morning Show"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "不正なインデックス"
+          }
+        }
+      },
+      "DeletedResponse": {
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "string",
+            "description": "削除されたアイテムのタイトルまたはファイル名",
+            "example": "Morning Show"
+          }
+        }
+      }
+    }
+  }
+},
+      dom_id: '#swagger-ui',
+      presets: [
+        SwaggerUIBundle.presets.apis,
+        SwaggerUIBundle.SwaggerUIStandalonePreset,
+      ],
+      layout: 'BaseLayout',
+      deepLinking: true,
+      defaultModelsExpandDepth: 1,
+      defaultModelExpandDepth: 2,
+    });
+  </script>
+</body>
+</html>
