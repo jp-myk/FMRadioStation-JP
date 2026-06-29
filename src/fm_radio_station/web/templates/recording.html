@@ -47,7 +47,7 @@
         <div class="mt-2 d-flex align-items-center justify-content-between">
           <small class="text-secondary" id="remaining-{{ loop.index }}">録音中...</small>
           <button class="btn btn-sm btn-outline-danger"
-                  onclick="cancelRecording({{ loop.index0 }}, this)"
+                  onclick="cancelRecording('{{ item.program_id }}', this)"
                   title="録音を中止する">
             <i class="bi bi-stop-circle me-1"></i>中止
           </button>
@@ -65,11 +65,11 @@
 
 {% block scripts %}
 <script>
-function cancelRecording(idx, btn) {
+function cancelRecording(programId, btn) {
   if (!confirm('録音を中止しますか？\n録音済みの部分はファイルに残ります。')) return;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
-  fetch('/api/recording/' + idx, { method: 'DELETE' })
+  fetch('/api/recording/' + encodeURIComponent(programId), { method: 'DELETE' })
     .then(r => r.json())
     .then(data => {
       if (data.cancelled) {

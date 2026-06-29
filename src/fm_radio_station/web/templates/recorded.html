@@ -58,7 +58,7 @@
           <i class="bi bi-download me-1"></i>ダウンロード
         </a>
         <button class="btn btn-sm btn-outline-danger"
-                onclick="deleteRecording({{ loop.index0 }}, this)">
+                onclick="deleteRecording('{{ item.program_id }}', this)">
           <i class="bi bi-trash3 me-1"></i>削除
         </button>
       </div>
@@ -110,10 +110,10 @@
 <script>
 window.ASR_BATCH_AVAILABLE = {{ 'true' if asr_batch_available else 'false' }};
 
-function deleteRecording(idx, btn) {
+function deleteRecording(programId, btn) {
   if (!confirm('この録音ファイルを削除しますか？')) return;
   btn.disabled = true;
-  fetch('/api/recorded/' + idx, { method: 'DELETE' })
+  fetch('/api/recorded/' + encodeURIComponent(programId), { method: 'DELETE' })
     .then(r => { if (!r.ok) throw new Error('削除に失敗しました'); return r; })
     .then(() => {
       const card = btn.closest('.col-12');

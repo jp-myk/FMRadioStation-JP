@@ -318,7 +318,7 @@ def _cleanup_stream(station_id: str, recv_ref: list, fifo_path: str):
 
 # ------------------------------
 # ＜録音処理＞
-def record_radio(station_id, output_file, duration, title, start_time, program_detail):
+def record_radio(station_id, output_file, duration, title, start_time, program_detail, program_id=""):
     """Record a radio broadcast to *output_file* for *duration* seconds, updating global state."""
     station = get_station(station_id)
     if station is None:
@@ -348,6 +348,7 @@ def record_radio(station_id, output_file, duration, title, start_time, program_d
         "duration": duration,
         "output": output_file,
         "program_detail": program_detail,
+        "program_id": program_id,
     }
     stop_event = threading.Event()
     _recording_events[output_file] = stop_event  # IN_PROGRESS 登録前に仕込む（キャンセル競合防止）
@@ -550,7 +551,7 @@ def schedule_recording(
     logger.info(f"予約確定: {resolved_title} ({start_dt})")
     threading.Timer(
         delay, record_radio,
-        args=(station_id, output_file, duration, resolved_title, start_time, program_detail)
+        args=(station_id, output_file, duration, resolved_title, start_time, program_detail, program_id)
     ).start()
     return RedirectResponse(url="/programs", status_code=302)
 
@@ -578,7 +579,7 @@ def api_programs(station_id: str | None = None, date: str | None = None):
     for station in stations:
         for prog in _radiko_client.fetch_programs_cached(station["id"], target_date):
             result.append({
-                "id": prog["id"],
+                "program_id": prog["id"],
                 "station_id": station["id"],
                 "title": prog["title"],
                 "start_time": prog["start_time"].strftime("%Y-%m-%d %H:%M:%S"),
@@ -629,6 +630,7 @@ def api_on_air(refresh: int = 0):
                         elapsed = (now - prog["start_time"]).total_seconds()
                         progress = int(elapsed / prog["duration"] * 100) if prog["duration"] else 0
                         entry = {
+                            "program_id": prog["id"],
                             "station_id": station["id"],
                             "station_name": station["name"],
                             "title": prog["title"],
@@ -649,6 +651,7 @@ def api_on_air(refresh: int = 0):
 
         if entry is None:
             entry = {
+                "program_id": "",
                 "station_id": station["id"],
                 "station_name": station["name"],
                 "title": "番組情報なし",
@@ -692,7 +695,7 @@ def api_recording():
         elapsed = max(0, (now - start).total_seconds())
         remaining = max(0, item["duration"] - elapsed)
         items.append({
-            "id": item.get("program_id", ""),
+            "program_id": item.get("program_id", ""),
             "title": item["title"],
             "station_id": item["station_id"],
             "station_name": item.get("station_name", ""),
@@ -704,13 +707,13 @@ def api_recording():
     return items
 
 
-@app.delete("/api/recording/{idx}")
-def api_cancel_recording(idx: int):
-    """Signal the recording at index *idx* to stop early by setting its stop event."""
+@app.delete("/api/recording/{program_id}")
+def api_cancel_recording(program_id: str):
+    """Signal the in-progress recording with *program_id* to stop early by setting its stop event."""
     with _state_lock:
-        if idx < 0 or idx >= len(IN_PROGRESS_RECORDINGS):
-            return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
-        item = IN_PROGRESS_RECORDINGS[idx]
+        item = next((it for it in IN_PROGRESS_RECORDINGS if it.get("program_id") == program_id), None)
+    if item is None:
+        return JSONResponse(content={"error": "録音が見つかりません"}, status_code=404)
     event = _recording_events.get(item.get("output", ""))
     if event is None:
         return JSONResponse(content={"error": "録音が停止できませんでした"}, status_code=409)
@@ -728,7 +731,7 @@ def api_recorded():
             start = start.strftime("%Y-%m-%d %H:%M:%S")
         output = item.get("output", "")
         items.append({
-            "id": item.get("program_id", ""),
+            "program_id": item.get("program_id", ""),
             "title": item["title"],
             "station_id": item["station_id"],
             "station_name": item.get("station_name", ""),
@@ -749,7 +752,7 @@ def api_reservations():
         if isinstance(start, datetime.datetime):
             start = start.strftime("%Y-%m-%d %H:%M:%S")
         items.append({
-            "id": item.get("program_id", ""),
+            "program_id": item.get("program_id", ""),
             "title": item["title"],
             "station_id": item["station_id"],
             "station": item.get("station", ""),
@@ -774,12 +777,13 @@ def _delete_recording_files(output: str):
             pass
 
 
-@app.delete("/api/recorded/{idx}")
-def api_delete_recorded(idx: int):
-    """Remove the completed recording at *idx* from state and delete its files from disk."""
+@app.delete("/api/recorded/{program_id}")
+def api_delete_recorded(program_id: str):
+    """Remove the completed recording with *program_id* from state and delete its files from disk."""
     with _state_lock:
-        if idx < 0 or idx >= len(COMPLETED_RECORDINGS):
-            return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
+        idx = next((i for i, it in enumerate(COMPLETED_RECORDINGS) if it.get("program_id") == program_id), None)
+        if idx is None:
+            return JSONResponse(content={"error": "録音が見つかりません"}, status_code=404)
         removed = COMPLETED_RECORDINGS.pop(idx)
     update_global_state()
     _delete_recording_files(removed.get("output", ""))
@@ -838,12 +842,13 @@ def api_transcribe_status(filename: str):
     }
 
 
-@app.delete("/api/reservations/{idx}")
-def api_delete_reservation(idx: int):
-    """Remove the scheduled reservation at *idx* from the list and persist state."""
+@app.delete("/api/reservations/{program_id}")
+def api_delete_reservation(program_id: str):
+    """Remove the scheduled reservation with *program_id* from the list and persist state."""
     with _state_lock:
-        if idx < 0 or idx >= len(SCHEDULED_RECORDINGS):
-            return JSONResponse(content={"error": "不正なインデックス"}, status_code=400)
+        idx = next((i for i, it in enumerate(SCHEDULED_RECORDINGS) if it.get("program_id") == program_id), None)
+        if idx is None:
+            return JSONResponse(content={"error": "予約が見つかりません"}, status_code=404)
         removed = SCHEDULED_RECORDINGS.pop(idx)
     update_global_state()
     title = removed["title"] if isinstance(removed["title"], str) else str(removed["title"])
@@ -1210,7 +1215,7 @@ def reschedule_pending():
             delay = (start_dt - now).total_seconds()
             threading.Timer(
                 delay, record_radio,
-                args=(rec["station_id"], rec["output"], rec["duration"], rec["title"], start_str, program_detail)
+                args=(rec["station_id"], rec["output"], rec["duration"], rec["title"], start_str, program_detail, rec.get("program_id", ""))
             ).start()
         else:
             with _state_lock:

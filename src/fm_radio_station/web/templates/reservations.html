@@ -34,7 +34,7 @@
     <tbody id="reservationsBody">
       {% for item in scheduled %}
       {% set start = item.start_time %}
-      <tr id="res-row-{{ loop.index0 }}">
+      <tr id="res-row-{{ item.program_id }}">
         <td>
           <div class="fw-semibold">{{ item.title }}</div>
         </td>
@@ -48,7 +48,7 @@
         <td class="small text-secondary">{{ (item.duration // 60) }}分</td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-danger"
-                  onclick="cancelReservation({{ loop.index0 }}, this)">
+                  onclick="cancelReservation('{{ item.program_id }}', this)">
             <i class="bi bi-trash3 me-1"></i>キャンセル
           </button>
         </td>
@@ -62,13 +62,13 @@
 
 {% block scripts %}
 <script>
-function cancelReservation(idx, btn) {
+function cancelReservation(programId, btn) {
   if (!confirm('この予約をキャンセルしますか？')) return;
   btn.disabled = true;
-  fetch('/api/reservations/' + idx, { method: 'DELETE' })
+  fetch('/api/reservations/' + encodeURIComponent(programId), { method: 'DELETE' })
     .then(r => {
       if (!r.ok) throw new Error('削除に失敗しました');
-      const row = document.getElementById('res-row-' + idx);
+      const row = document.getElementById('res-row-' + programId);
       row.classList.add('fade-out');
       setTimeout(() => row.remove(), 300);
     })

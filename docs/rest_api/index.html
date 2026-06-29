@@ -216,7 +216,7 @@
         }
       }
     },
-    "/api/recording/{idx}": {
+    "/api/recording/{program_id}": {
       "delete": {
         "tags": [
           "recording"
@@ -225,7 +225,7 @@
         "operationId": "cancelRecording",
         "parameters": [
           {
-            "$ref": "#/components/parameters/IdxPath"
+            "$ref": "#/components/parameters/ProgramIdPath"
           }
         ],
         "responses": {
@@ -239,8 +239,8 @@
               }
             }
           },
-          "400": {
-            "description": "インデックスが範囲外",
+          "404": {
+            "description": "指定の program_id の録音が見つからない",
             "content": {
               "application/json": {
                 "schema": {
@@ -319,17 +319,17 @@
         }
       }
     },
-    "/api/recorded/{idx}": {
+    "/api/recorded/{program_id}": {
       "delete": {
         "tags": [
           "recorded"
         ],
         "summary": "完了録音を state から削除しファイルも消す",
-        "description": "完了録音リストのインデックスを指定して state から除去し、\nWAV・JSON サイドカーをディスクから削除する。\n",
+        "description": "完了録音の program_id を指定して state から除去し、\nWAV・JSON サイドカーをディスクから削除する。\n",
         "operationId": "deleteRecorded",
         "parameters": [
           {
-            "$ref": "#/components/parameters/IdxPath"
+            "$ref": "#/components/parameters/ProgramIdPath"
           }
         ],
         "responses": {
@@ -343,8 +343,8 @@
               }
             }
           },
-          "400": {
-            "description": "インデックスが範囲外",
+          "404": {
+            "description": "指定の program_id の録音が見つからない",
             "content": {
               "application/json": {
                 "schema": {
@@ -380,7 +380,7 @@
         }
       }
     },
-    "/api/reservations/{idx}": {
+    "/api/reservations/{program_id}": {
       "delete": {
         "tags": [
           "reservations"
@@ -389,7 +389,7 @@
         "operationId": "deleteReservation",
         "parameters": [
           {
-            "$ref": "#/components/parameters/IdxPath"
+            "$ref": "#/components/parameters/ProgramIdPath"
           }
         ],
         "responses": {
@@ -403,8 +403,8 @@
               }
             }
           },
-          "400": {
-            "description": "インデックスが範囲外",
+          "404": {
+            "description": "指定の program_id の予約が見つからない",
             "content": {
               "application/json": {
                 "schema": {
@@ -864,15 +864,15 @@
   },
   "components": {
     "parameters": {
-      "IdxPath": {
-        "name": "idx",
+      "ProgramIdPath": {
+        "name": "program_id",
         "in": "path",
         "required": true,
-        "description": "リスト内のゼロ始まりインデックス",
+        "description": "Radiko 番組 ID（例: `20240115INTERFM0700`）",
         "schema": {
-          "type": "integer",
-          "minimum": 0
-        }
+          "type": "string"
+        },
+        "example": "20240115INTERFM0700"
       },
       "StationIdPath": {
         "name": "station_id",
@@ -889,7 +889,7 @@
       "ProgramItem": {
         "type": "object",
         "required": [
-          "id",
+          "program_id",
           "station_id",
           "title",
           "start_time",
@@ -897,7 +897,7 @@
           "duration"
         ],
         "properties": {
-          "id": {
+          "program_id": {
             "type": "string",
             "description": "Radiko 番組 ID",
             "example": "20240115INTERFM0700"
@@ -972,6 +972,7 @@
       "OnAirItem": {
         "type": "object",
         "required": [
+          "program_id",
           "station_id",
           "station_name",
           "title",
@@ -982,6 +983,11 @@
           "is_recording"
         ],
         "properties": {
+          "program_id": {
+            "type": "string",
+            "description": "Radiko 番組 ID。番組情報なし（has_program=false）の場合は空文字",
+            "example": "20240115INTERFM0700"
+          },
           "station_id": {
             "type": "string",
             "example": "interfm"
@@ -1044,7 +1050,7 @@
       "RecordingItem": {
         "type": "object",
         "required": [
-          "id",
+          "program_id",
           "title",
           "station_id",
           "station_name",
@@ -1054,7 +1060,7 @@
           "remaining"
         ],
         "properties": {
-          "id": {
+          "program_id": {
             "type": "string",
             "description": "Radiko 番組 ID",
             "example": "20240115NHK_FM0700"
@@ -1113,7 +1119,7 @@
       "RecordedItem": {
         "type": "object",
         "required": [
-          "id",
+          "program_id",
           "title",
           "station_id",
           "station_name",
@@ -1123,7 +1129,7 @@
           "file_exists"
         ],
         "properties": {
-          "id": {
+          "program_id": {
             "type": "string",
             "description": "Radiko 番組 ID",
             "example": "20240115NHK_FM0700"
@@ -1164,7 +1170,7 @@
       "ReservationItem": {
         "type": "object",
         "required": [
-          "id",
+          "program_id",
           "title",
           "station_id",
           "station",
@@ -1172,7 +1178,7 @@
           "duration"
         ],
         "properties": {
-          "id": {
+          "program_id": {
             "type": "string",
             "description": "Radiko 番組 ID",
             "example": "20240115NHK_FM0700"
